@@ -1,0 +1,15 @@
+# --- API / servidor ---
+fastapi
+uvicorn[standard]
+
+# --- OCR / Computer Vision ---
+python-doctr[torch]     # backend PyTorch para doctr
+opencv-python
+pillow
+
+# --- PDF parsing ---
+pdfplumber              # arrastra pdfminer.six como dependencia
+
+# --- Config / validación ---
+pydantic
+python-dotenv
