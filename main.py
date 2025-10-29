@@ -1,4 +1,4 @@
-import os, tempfile
+import os, tempfile, traceback
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from models.data import ExtractResponse
@@ -16,27 +16,45 @@ app = FastAPI(
 def health():
     return {"status": "ok"}
 
-@app.post("/extract", response_model=ExtractResponse)
+
+@app.post("/extract")
 async def extract(pdf: UploadFile = File(...)):
+    """Recibe un PDF y extrae los campos sin usar OCR (solo texto embebido)."""
     if not pdf.filename.lower().endswith(".pdf"):
-        raise HTTPException(400, "Sube un archivo .pdf")
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF")
 
-    with tempfile.NamedTemporaryFile(suffix=".pdf", delete=False) as tmp:
-        tmp.write(await pdf.read())
-        path = tmp.name
+    content = await pdf.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
 
+    tmp_path = None
     try:
-        if has_text_layer(path):
-            blocks = extract_text_blocks(path)
-        # else:
-        #     blocks = pdf_to_blocks_via_ocr(path)
+        # Guardar PDF temporalmente
+        fd, tmp_path = tempfile.mkstemp(suffix=".pdf")
+        os.close(fd)
+        with open(tmp_path, "wb") as f:
+            f.write(content)
 
+        # --- Solo lectura de texto, sin OCR ---
+        try:
+            blocks = extract_text_blocks(tmp_path)  # tu función actual
+        except Exception as e:
+            traceback.print_exc()
+            raise HTTPException(status_code=500, detail=f"Error leyendo PDF: {e}")
+
+        if not blocks:
+            raise HTTPException(status_code=422, detail="No se detectó texto en el PDF")
+
+        # Procesar campos
         data = extract_fields_from_blocks(blocks)
-        return JSONResponse(data.dict())
-    finally:
-        try: os.remove(path)
-        except: pass
+        return JSONResponse(content=data)
 
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except:
+                pass
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", port=8000, reload=True)
