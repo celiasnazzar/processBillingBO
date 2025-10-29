@@ -1,5 +1,5 @@
 import re, math, unicodedata
-from typing import List, Optional, Tuple
+from typing import List, Optional, Tuple, Dict
 from dateutil import parser as dtp
 from models.data import Block, ExtractResponse
 from settings import settings
@@ -28,15 +28,201 @@ UNIT_WORD_RX        = re.compile(r'\b(UND|UNIDAD(?:ES)?|PCS|PZ|PCE)\b', re.I)
 UNIT_NUM_RX         = re.compile(r'(\d{1,7})(?:[.,]\d+)?\s*(?:UND|UNIDAD(?:ES)?|PCS|PZ|PCE)\b', re.I)
 RX_ID_TOKEN         = re.compile(r'\b([A-Z]*\d{3,}|[A-Z0-9][A-Z0-9\-\/\.]{1,})\b')
 _ID                 = r'([A-Z]?\d[\w\-\/\.]{2,}|[A-Z0-9][A-Z0-9\-\/\.]{3,})'
+RX_EMAIL = re.compile(r'([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})', re.I)
+RX_PHONE = re.compile(r'(\+?\d[\d\s\-\(\)\.]{7,})')
+HDR_SHIP = re.compile(
+    r'\b(?:GOODS\s+DELIVERY\s+ADDRESS|DELIVERY\s+ADDRESS|ADRESSE\s+LIVRAISON|'
+    r'DIRECCIÓN\s+DE\s+ENTREGA|INDIRIZZO\s+DI\s+CONSEGNA)\b', re.I)
+
+COUNTRIES = [
+    r'ESPAÑA|SPAIN', r'ITALIA|ITALY', r'FRANCIA|FRANCE', r'PORTUGAL',
+    r'RUMANIA|ROMANIA|ROUMANIE', r'GERMANY|ALEMANIA|ALLEMAGNE',
+    r'GREECE|GRECIA|GRÈCE', r'POLAND|POLONIA|POLOGNE'
+]
+RX_COUNTRY = re.compile(r'\b(?:' + '|'.join(COUNTRIES) + r')\b', re.I)
+HEADERS = [
+    "GOODS DELIVERY ADDRESS",
+    "ADRESSE LIVRAISON",
+    "INDIRIZZO DI CONSEGNA",
+    "DIRECCIÓN ENVÍO MERCANCÍA",
+    "DIRECCION ENVIO MERCANCIA",   # sin acentos (por si el OCR los pierde)
+    "LIEFERADRESSE",
+]
+
 
 # --- helpers ---
 def _norm_text(s: str) -> str:
-    # normaliza unicode y espacios: 'N°'/'°' -> 'º', NBSP -> espacio
     s = unicodedata.normalize('NFKC', s).replace('\xa0', ' ')
     s = s.replace('°', 'º')
-    # colapsa espacios
     s = re.sub(r'[ \t]+', ' ', s)
     return s
+
+def _deaccent(s: str) -> str:
+    return ''.join(c for c in unicodedata.normalize('NFKD', s) if not unicodedata.combining(c))
+
+HEADER_RX = re.compile(
+    r'(?:' + '|'.join([re.sub(r'\s+', r'\\s+', _deaccent(h)) for h in HEADERS]) + r')',
+    re.I
+)
+
+def _norm(s: str) -> str:
+    s = s.replace('\xa0', ' ')                 
+    s = _deaccent(s)
+    s = re.sub(r'\s+', ' ', s)                 
+    return s.strip()
+
+
+def normalize_phone(raw: str) -> str:
+    raw = raw.strip()
+    plus = '+' if raw.strip().startswith('+') else ''
+    digits = re.sub(r'\D', '', raw)
+    return plus + digits if digits else ''
+
+def get_shipping_panel_blocks(blocks: List[Block]) -> List[Block]:
+    """Devuelve los bloques del panel de envío (derecha) usando el encabezado como frontera."""
+    headers = [b for b in blocks if HDR_SHIP.search(b.text)]
+    if not headers:
+        return []
+    hdr = sorted(headers, key=lambda b: (b.page, b.bbox[1]))[0]
+    split_x = hdr.bbox[0]
+    return [b for b in blocks if b.page == hdr.page and b.bbox[0] >= split_x - 5]
+
+def shipping_name_from_header_v2(lines: List[str]) -> str:
+    """
+    Busca el encabezado de envío en 'lines' (tolerante a acentos/espacios).
+    - Si hay texto en la MISMA línea a la derecha → lo devuelve.
+    - Si no, devuelve la PRIMERA línea no vacía posterior.
+    """
+    for i, raw in enumerate(lines):
+        raw_strip = raw.strip()
+        norm_line = _norm(raw_strip)
+        m = HEADER_RX.search(norm_line)
+        if not m:
+            continue
+
+        tail_norm = norm_line[m.end():].strip()
+        if tail_norm:
+            header_pat = re.compile(
+                r'(?:' + '|'.join([re.sub(r'\s+', r'\\s+', h) for h in HEADERS]) + r')\s*',
+                re.I
+            )
+            m2 = header_pat.search(raw_strip)
+            if m2:
+                return raw_strip[m2.end():].strip()
+            return tail_norm
+
+        for j in range(i + 1, len(lines)):
+            nxt = lines[j].strip()
+            if nxt:
+                return nxt
+        return ""
+
+    return ""
+
+def lines_from_blocks(panel: List[Block]) -> List[str]:
+    """Agrupa por fila visual y devuelve líneas ordenadas de arriba a abajo."""
+    if not panel:
+        return []
+
+    def y_overlap(a, b):
+        y0, y1 = a[1], a[3]; a0, a1 = b[1], b[3]
+        inter = max(0, min(y1, a1) - max(y0, a0))
+        denom = max((y1 - y0), (a1 - a0), 1e-6)
+        return inter / denom
+    panel = sorted(panel, key=lambda b: (b.bbox[1], b.bbox[0]))
+    lines = []
+    for b in panel:
+        placed = False
+        for L in lines:
+            if y_overlap(b.bbox, L[0].bbox) >= 0.55:
+                L.append(b); placed = True; break
+        if not placed:
+            lines.append([b])
+
+    out = []
+    for L in lines:
+        L.sort(key=lambda x: x.bbox[0])
+        out.append(" ".join(x.text.strip() for x in L).strip())
+    return out
+
+def extract_shipping_fields_from_text(lines: List[str]) -> Dict[str, str]:
+    """
+    Espera líneas del panel de envío. Heurísticas:
+    - nombre: primera línea no vacía que NO sea 'TEL/Email' ni empiece por código postal
+    - país: primer match de RX_COUNTRY (última aparición tiene prioridad)
+    - email: primer match RX_EMAIL
+    - teléfono: número más largo (prioriza líneas con 'TEL')
+    """
+    name = ""
+    country = ""
+    email = ""
+    phone = ""
+
+    # 1) email
+    for ln in lines:
+        m = RX_EMAIL.search(ln)
+        if m:
+            email = m.group(1).lower()
+            break
+
+    # 2) teléfono (prioriza línea con 'TEL')
+    phone_candidates = []
+    for ln in lines:
+        if 'TEL' in ln.upper() or 'PHONE' in ln.upper():
+            phone_candidates.append(ln)
+    phone_candidates += lines  # fallback
+    best = ""
+    for ln in phone_candidates:
+        for m in RX_PHONE.finditer(ln):
+            cand = normalize_phone(m.group(1))
+            if len(cand) > len(best):
+                best = cand
+    phone = best
+
+    # 3) país (última aparición)
+    for ln in lines:
+        for m in RX_COUNTRY.finditer(ln):
+            country = m.group(0).upper()
+    # homogeniza algunas variantes
+    country = (country
+               .replace('FRANCE', 'FRANCIA')
+               .replace('ITALY', 'ITALIA')
+               .replace('SPAIN', 'ESPAÑA')
+               .replace('ROUMANIE', 'RUMANIA'))
+
+    # 4) nombre (primera línea “tipo nombre”)
+    for ln in lines:
+        s = ln.strip()
+        if not s:
+            continue
+        if s.upper().startswith(('TEL', 'EMAIL', 'ADRESSE', 'ADDRESS', 'DIRECCIÓN', 'INDIRIZZO')):
+            continue
+        if any(tok in s.upper() for tok in ('CP', 'C.P.', 'ZIP', 'BP ')):
+            continue
+        # evita que coja líneas que son solo país
+        if RX_COUNTRY.fullmatch(s):
+            continue
+        name = s
+        break
+
+    if "\n" in name:
+        name = name.split("\n")[0].strip()
+
+    return {
+        "Envio_Nombre": name,
+        "Envio_Pais": country,
+        "Envio_Telefono": phone,
+        "Envio_Email": email,
+    }
+
+def extract_shipping_fields(blocks: List[Block]) -> Dict[str, str]:
+    panel = get_shipping_panel_blocks(blocks)
+    lines = lines_from_blocks(panel)
+    nombre = shipping_name_from_header_v2(lines)
+
+    fields = extract_shipping_fields_from_text(lines)
+           
+    return fields
 
 def cleanup_amount(raw: str) -> str:
     if not raw: return ""
@@ -150,6 +336,7 @@ def findUnits(blocks: List[Block]) -> int:
                 pass
     return total if seen > 0 else 0
 
+# --- Busca el Nº de pedido en todo el texto plano ---
 def find_order_number(blocks) -> str:
     """
     Busca el Nº de pedido en texto plano, cubriendo:
@@ -195,6 +382,7 @@ def _y_overlap(a: Tuple[float,float,float,float], b: Tuple[float,float,float,flo
     denom = max((y1 - y0), (a1 - a0), 1e-6)
     return inter / denom
 
+# --- agrupa bloques en filas visuales ---
 def _build_lines(blocks: List[Block], overlap_min: float = 0.55) -> List[List[Block]]:
     """Agrupa bloques en filas por solape vertical; cada fila = lista de bloques ordenados por X."""
     if not blocks: 
@@ -214,10 +402,8 @@ def _build_lines(blocks: List[Block], overlap_min: float = 0.55) -> List[List[Bl
         L.sort(key=lambda x: x.bbox[0])
     return lines
 
-# ---- patrones ----------------------------------------------
 LABEL = r'(?:ordine|order|commande|pedido|orden)'
-NLAB  = r'(?:n[º°o\.]*|no\.?|num\.?|number|#)?'      # opcional
-# token de pedido: dígitos (4–9) con prefijo opcional de 1 letra; NO admite '/'
+NLAB  = r'(?:n[º°o\.]*|no\.?|num\.?|number|#)?'      
 ORDER_TOKEN = re.compile(r'\b([A-Z]?\d{4,9})\b')
 
 def find_order_number_from_lines(blocks: List[Block]) -> str:
@@ -226,7 +412,6 @@ def find_order_number_from_lines(blocks: List[Block]) -> str:
     # Recorre filas de arriba a abajo
     for L in lines:
         line_text = " ".join(b.text for b in L)
-        # ¿esta fila contiene la etiqueta?
         if re.search(fr'\b{NLAB}\s*{LABEL}\b', line_text, re.I) or re.search(fr'\b{LABEL}\b\s*{NLAB}', line_text, re.I):
             # busca el primer bloque donde aparece la etiqueta
             anchor_idx = None
@@ -235,17 +420,16 @@ def find_order_number_from_lines(blocks: List[Block]) -> str:
                     anchor_idx = i; break
             if anchor_idx is None:
                 continue
-            # examina bloques a la derecha del anchor en la misma línea
+            # examina bloques a la derecha en la misma línea
             for b in L[anchor_idx+1:]:
                 m = ORDER_TOKEN.search(b.text)
                 if m:
                     return m.group(1)
-            # si no hubo token a la derecha, intenta dentro del mismo bloque del anchor
+            # si no hubo token a la derecha, intenta dentro del mismo bloque
             m_inline = ORDER_TOKEN.search(L[anchor_idx].text)
             if m_inline:
                 return m_inline.group(1)
-            # último recurso: mirar 1 fila siguiente si está casi alineada
-            # (algunas plantillas “saltan” el valor a la línea inferior)
+
             idx = lines.index(L)
             if idx+1 < len(lines) and _y_overlap(L[0].bbox, lines[idx+1][0].bbox) >= 0.20:
                 for b in lines[idx+1]:
@@ -272,22 +456,8 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     if mref: ref, c3 = mref.group(1), 0.9
     else:    ref, c3 = "", 0.0
 
-    # cliente (derecha) a partir del ancla de entrega (izquierda)
-    cliente, c4, envio_text = "", 0.0, ""
-    left = [b for b in blocks if ANCH_DELIVERY.search(b.text)]
-    if left:
-        la = left[0]
-        # Cliente: primer bloque en mayúsculas a la derecha, similar altura
-        candidates = [b for b in blocks if b.page==la.page and b.bbox[0] > la.bbox[0]+20
-                      and abs(b.bbox[1]-la.bbox[1]) < 180 and RX_UPPER_LINE.match(b.text)]
-        candidates.sort(key=lambda b: (b.bbox[0], abs(b.bbox[1]-la.bbox[1])))
-        if candidates:
-            cliente, c4 = candidates[0].text.strip(), 0.9
-        # Envío: texto bajo el ancla
-        under = [b for b in blocks if b.page==la.page and b.bbox[1] >= la.bbox[1]
-                 and la.bbox[0]-10 <= b.bbox[0] <= la.bbox[0]+350]
-        under.sort(key=lambda b: (b.bbox[1], b.bbox[0]))
-        envio_text = "\n".join(b.text for b in under[:6]).strip()
+    # Extrae datos de cliente del panel de envío
+    envio_fields = extract_shipping_fields(blocks)
 
     importe_raw, c5 = "", 0.0
     total_anchor = [b for b in blocks if ANCH_TOTAL.search(b.text)]
@@ -329,11 +499,11 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
         if md: fecha, c6 = parse_date(md.group(1)), 0.6
 
     unidades = findUnits(blocks)
-    confidence = round((c1+c2+c3+c4+c5+c6)/6, 2)
+    confidence = round((c1+c2+c3+c5+c6)/6, 2)
 
     return ExtractResponse(
         Numero_de_pedido=pedido,
-        Nombre_de_cliente=cliente,
+        Nombre_de_cliente=envio_fields["Envio_Nombre"],
         Numero_proforma=proforma,
         Fecha_de_la_factura=fecha,
         Referencia_de_pedido=ref,
@@ -341,5 +511,7 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
         Unidades=unidades,        
         confidence=confidence,
         source="rule",
-        Envio_bloque=envio_text,
+        pais=envio_fields["Envio_Pais"],
+        telefono=envio_fields["Envio_Telefono"],
+        email=envio_fields["Envio_Email"],
     )

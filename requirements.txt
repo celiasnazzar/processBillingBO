@@ -1,15 +1,23 @@
-# --- API / servidor ---
-fastapi
-uvicorn[standard]
+# --- Núcleo del servicio FastAPI ---
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.7
+pydantic_settings>=2.7
 
-# --- OCR / Computer Vision ---
-python-doctr[torch]     # backend PyTorch para doctr
-opencv-python
-pillow
+# --- Lectura y parsing de PDFs ---
+pymupdf>=1.24.9          
+pdfplumber>=0.11.0       
+Pillow>=10.4.0           
 
-# --- PDF parsing ---
-pdfplumber              # arrastra pdfminer.six como dependencia
+# --- OCR (opcional según tu backend preferido) ---
+pytesseract>=0.3.10      
+ocrmypdf>=16.0.0         
+python-doctr[torch]>=0.8.1   
 
-# --- Config / validación ---
-pydantic
-python-dotenv
+# --- Procesamiento y regex / fecha / utilidades ---
+python-dateutil>=2.9.0
+numpy>=1.26.4             
+unicodedata2>=15.1.0      
+
+# --- CLI / logs / utilidades opcionales ---
+rich>=13.7.1              

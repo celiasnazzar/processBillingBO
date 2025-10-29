@@ -17,7 +17,8 @@ class ExtractResponse(BaseModel):
     Importe: str
     Unidades: int | None = 0
 
-    Envio_bloque: str | None = ""
     confidence: float
-    source: str   
-    
+    source: str
+    pais: str | None = None
+    telefono: str | None = None
+    email: str | None = None

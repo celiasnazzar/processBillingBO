@@ -2,9 +2,9 @@ import os, tempfile
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from models.data import ExtractResponse
+# from services.ocr import pdf_to_blocks_via_ocr
 from services.pdfReader import has_text_layer, extract_text_blocks
 from services.pdfDataExtraction import extract_fields_from_blocks
-# from services.ocr import pdf_to_blocks_via_ocr
 
 app = FastAPI(
     title="Extractor de Proformas/Facturas",

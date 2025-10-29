@@ -4,11 +4,11 @@
 # import fitz
 # from models.data import Block
 # from settings import settings
-# from doctr import io
+# from doctr.io import DocumentFile
+# from doctr.models import ocr_predictor
 
 # def doctr_pdf_to_blocks(path: str) -> List[Block]:
-#     from doctr.io import DocumentFile
-#     from doctr.models import ocr_predictor
+
 #     predictor = ocr_predictor(pretrained=True)
 #     doc = DocumentFile.from_pdf(path)
 #     res = predictor(doc).export()
