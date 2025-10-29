@@ -47,7 +47,7 @@ async def extract(pdf: UploadFile = File(...)):
 
         # Procesar campos
         data = extract_fields_from_blocks(blocks)
-        return JSONResponse(content=data)
+        return JSONResponse(content=data.model_dump())
 
     finally:
         if tmp_path and os.path.exists(tmp_path):
