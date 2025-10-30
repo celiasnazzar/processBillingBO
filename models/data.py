@@ -15,7 +15,8 @@ class ExtractResponse(BaseModel):
     
     Nombre_de_cliente: str
     Importe: str
-    Unidades: int | None = 0
+    Moneda: str | None = None
+    Unidades: str | None = 0
 
     confidence: float
     source: str
