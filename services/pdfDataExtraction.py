@@ -6,8 +6,8 @@ from settings import settings
 
 # --- regex y anchors ---
 PROFORMA_LABEL = r'(?:pro[\s\-]?forma(?:\s*invoice)?|factura\s*proforma|fattura\s*proforma)'
-ORDER_LABEL    = r'(?:order|Nº ORDINE|N. COMMANDE|pedido|ORDER N.)'
-NUM_LABEL      = r'(?:n[ºo\.]*|no\.?|num\.?|number|#)'
+ORDER_LABEL = r'(?:order|pedido|orden|commande|ordine|auftrag|auftragsnummer|bestellnummer|ORDER N\.)'
+NUM_LABEL      = r'(?:n[ºo\.]*|no\.?|num\.?|nr\.?|number|#|NO\.)'
 
 RX_ID_GENERIC       = re.compile(r'\b[A-Z0-9][A-Z0-9\-\/\.]{4,}\b')
 RX_REF_YYYY_SLASH   = re.compile(r'\b(20\d{2}\/\d{3,7})\b')
@@ -17,11 +17,12 @@ RX_MONEY = re.compile(
     r'|(?:EUR|USD|GBP|EURO|€|\$|£)\s?\d+(?:[.,]\d{2})',
     re.I
 )
-RX_TOTAL_MAIN   = re.compile(r'\bTOTAL(?:E)?\b', re.I)
+RX_TOTAL_MAIN   = re.compile(r'\bTOTAL(?:E)?|GESAMT\b', re.I)
 RX_TOTAL_BADCTX = re.compile(
     r'\b('
     r'TAX|TAXE|TAXES|TVA|IVA|IGIC|'
     r'IMPUESTOS|IMPOSTOS|IMPOSTI|IMPOSTO|TASSE|TASSA|TAXA'
+    r'STEUER|STEUERN|MWST|UST|BEMESSUNGSGRUNDLAG(?:E)?'
     r')\b',
     re.I
 )
@@ -29,12 +30,12 @@ RX_DATE             = re.compile(r'\b(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4}|[A-Za-
 RX_UPPER_LINE       = re.compile(r'^[A-Z0-9 .,&\'\-]{3,70}$')
 ANCH_PROFORMA = re.compile(
     r'\b(?:pro[\s\-]?forma(?:\s*invoice)?|factura\s*proforma|fattura\s*proforma)\b'
-    r'(?:\s*(?:n[º°o\.]*|no\.?|num\.?|number|#))?',
+    r'(?:\s*(?:n[º°o\.]*|no\.?|nr\.?|num\.?|number|#|NO\.))?',
     re.I
 )
 ANCH_ORDER          = re.compile(fr'\b{ORDER_LABEL}\b\s',   re.I)
 ANCH_TOTAL          = re.compile(r'\bTOTAL(?:E)?\b', re.I)
-ANCH_DATE           = re.compile(r'\b(fecha|date|data)\b', re.I)
+ANCH_DATE           = re.compile(r'\b(fecha|date|data|datum)\b', re.I)
 ANCH_DELIVERY       = re.compile(r'INDIRIZZO DI CONSEGNA', re.I)
 TOTAL_RX            = re.compile(r'\bTOTAL(?:E)?\b', re.I)
 UNIT_WORD_RX        = re.compile(r'\b(UND|UNIDAD(?:ES)?|PCS|PZ|PCE)\b', re.I)
@@ -300,7 +301,7 @@ def same_line_right_value(anchor_rx, blocks: List[Block], max_dx: int | None = N
     x0, y0, x1, y1 = base.bbox
 
     # 2) mismo bloque, justo tras el anchor
-    pattern_inline = anchor_rx.pattern + r'(?:\s*(?:[:\-\.·])?\s*([A-Z0-9][A-Z0-9\-\/\.]{0,}))'
+    pattern_inline = anchor_rx.pattern + r'(?:\s*(?:[:\-\.·])?\s*([A-Z]?\d[\dA-Z\-\/\.]*))'
     mline = re.search(pattern_inline, base.text, re.I)
     if mline and mline.group(1):
         val = mline.group(1).strip()
@@ -461,8 +462,8 @@ def find_total_amount(blocks: List[Block]) -> Tuple[str, str, float]:
         return "", "", 0.0
 
     def same_row_amount(base: Block):
-        # 1) Inline: "TOTAL EUR 1.234,56"
-        m_inline = re.search(r'\bTOTAL(?:E)?\b.*?(' + RX_MONEY.pattern + r')', base.text, re.I)
+        # Busca importe en la MISMA fila visual que 'base'
+        m_inline = re.search(r'\bTOTAL(?:E)?|GESAMT\b.*?(' + RX_MONEY.pattern + r')', base.text, re.I)
         if m_inline:
             raw = m_inline.group(1)
             cur = detect_currency(base.text) or detect_currency(raw)
@@ -474,7 +475,7 @@ def find_total_amount(blocks: List[Block]) -> Tuple[str, str, float]:
             if r.page == base.page
             and r.bbox[0] > base.bbox[2]
             and (r.bbox[0] - base.bbox[2]) <= 600.0
-            and y_overlap_ratio(r, base) >= 0.55
+            and y_overlap_ratio(r, base) >= 0.45
         ]
         # prioriza quien tenga token de moneda
         row.sort(key=lambda r: (0 if RX_CURRENCY_TOKEN.search(r.text) else 1,
@@ -543,8 +544,8 @@ def find_order_number(blocks) -> str:
     txt = _norm_text("\n".join(b.text for b in blocks))
     lines = [l.strip() for l in txt.splitlines() if l.strip()]
 
-    LABEL = r'(?:ORDINE|ORDER|COMMANDE|PEDIDO|ORDEN)'
-    NLAB  = r'(?:N[ºO\.]*|NO\.?|NUM\.?|NUMBER|#)?'
+    LABEL = r'(?:ordine|order|commande|pedido|orden|auftrag|auftragsnummer|bestellnummer)'
+    NLAB  = r'(?:N[ºO\.]*|NO\.?|NUM\.?|NR\.?|NUMBER|#)?'
     SEP   = r'[\s:\-·\.]*'                         
 
     m = re.search(rf'\b{NLAB}\s*{LABEL}\b{SEP}{_ID}', txt, re.I)
@@ -598,7 +599,7 @@ def _build_lines(blocks: List[Block], overlap_min: float = 0.55) -> List[List[Bl
         L.sort(key=lambda x: x.bbox[0])
     return lines
 
-LABEL = r'(?:ordine|order|commande|pedido|orden)'
+LABEL = r'(?:ordine|order|commande|pedido|orden|auftrag|auftragsnummer|bestellnummer)'
 NLAB  = r'(?:n[º°o\.]*|no\.?|num\.?|number|#)?'      
 ORDER_TOKEN = re.compile(r'\b([A-Z]?\d{4,9})\b')
 
