@@ -5,6 +5,7 @@ from models.data import ExtractResponse
 # from services.ocr import pdf_to_blocks_via_ocr
 from services.pdfReader import has_text_layer, extract_text_blocks
 from services.pdfDataExtraction import extract_fields_from_blocks
+from langdetect import detect, DetectorFactory
 
 app = FastAPI(
     title="Extractor de Proformas/Facturas",
@@ -15,7 +16,6 @@ app = FastAPI(
 @app.get("/health")
 def health():
     return {"status": "ok"}
-
 
 @app.post("/extract")
 async def extract(pdf: UploadFile = File(...)):
@@ -55,6 +55,16 @@ async def extract(pdf: UploadFile = File(...)):
                 os.remove(tmp_path)
             except:
                 pass
+
+@app.post("/detect-language")
+async def detect_language(string: str):
+    """Detecta el idioma del texto proporcionado."""
+    DetectorFactory.seed = 0  
+    try:
+        lang = detect(string)
+        return {"language": lang}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error detectando idioma: {e}")
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", port=8000, reload=True)

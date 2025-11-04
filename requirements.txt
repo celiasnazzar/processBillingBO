@@ -7,7 +7,10 @@ pydantic_settings>=2.7
 # --- Lectura y parsing de PDFs ---
 pymupdf>=1.24.9          
 pdfplumber>=0.11.0       
-Pillow>=10.4.0           
+Pillow>=10.4.0  
+
+# --- Detección de idioma ---
+langdetect>=1.0.9
 
 # --- OCR (opcional según tu backend preferido) ---
 pytesseract>=0.3.10      
