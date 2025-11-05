@@ -72,8 +72,8 @@ async def detect_language(string: str):
 async def generate_mail(idioma: str = "", importe: float = 0.0, moneda: str = "EUR", numeroPedido: int = 0, fechaFactura: str = ""):
     """Genera un correo electrónico de solicitud de pago basado en los datos proporcionados."""
     try:
-        body = generateBody(idioma, importe, moneda, numeroPedido, fechaFactura)
-        return {"email_body": body}
+        body, subject = generateBody(idioma, importe, moneda, numeroPedido, fechaFactura)
+        return {"email_body": body, "email_subject": subject}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando correo: {e}")
