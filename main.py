@@ -72,7 +72,14 @@ async def detect_language(string: str):
 async def generate_mail(input: mailInput):
     """Genera un correo electrónico de solicitud de pago basado en los datos proporcionados."""
     try:
-        body, subject = generateBody(input.idioma, input.importe, input.moneda, input.numeroPedido, input.fechaFactura)
+        # Comprobaciones por si los datos vienen vacíos o con otro formato.
+        lang = (input.idioma or "en").lower()
+        amount = 0.0 if input.importe is None else float(input.importe)
+        currency = input.moneda or ""
+        order_no = 0 if input.numeroPedido is None else int(input.numeroPedido)
+        date_iso = input.fechaFactura or ""   
+
+        body, subject = generateBody(lang, amount, currency, order_no, date_iso)
         return {"email_body": body, "email_subject": subject}
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))

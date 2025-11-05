@@ -27,10 +27,10 @@ class ExtractResponse(BaseModel):
 
 class mailInput(BaseModel):
     idioma: Optional[str] | None = "en"
-    importe: Optional[float]
-    moneda: Optional[str]
-    numeroPedido: Optional[int]
-    fechaFactura: Optional[str]
+    importe: Optional[float] = None
+    moneda: Optional[str] = None
+    numeroPedido: Optional[int] = None
+    fechaFactura: Optional[str] = None
 
 class mailOutput(BaseModel):
     email_body: str
