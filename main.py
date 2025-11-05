@@ -1,13 +1,13 @@
 import os, tempfile, traceback
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
-from models.data import ExtractResponse
+from langdetect import detect, DetectorFactory
 
 from services.pdfReading.pdfReader import has_text_layer, extract_text_blocks
 from services.pdfReading.pdfDataExtraction import extract_fields_from_blocks
-from langdetect import detect, DetectorFactory
-
 from services.mail.generateBody import generateBody
+
+from models.data import ExtractResponse, mailInput, mailOutput
 
 app = FastAPI(
     title="Extractor de Proformas/Facturas",
@@ -68,13 +68,14 @@ async def detect_language(string: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error detectando idioma: {e}")
 
-@app.post("/generateMail")
-async def generate_mail(idioma: str = "", importe: float = 0.0, moneda: str = "EUR", numeroPedido: int = 0, fechaFactura: str = ""):
+@app.post("/generateMail", response_model=mailOutput)
+async def generate_mail(input: mailInput):
     """Genera un correo electrónico de solicitud de pago basado en los datos proporcionados."""
     try:
-        body, subject = generateBody(idioma, importe, moneda, numeroPedido, fechaFactura)
+        body, subject = generateBody(input.idioma, input.importe, input.moneda, input.numeroPedido, input.fechaFactura)
         return {"email_body": body, "email_subject": subject}
-
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando correo: {e}")
 

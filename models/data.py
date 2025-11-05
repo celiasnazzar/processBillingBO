@@ -1,3 +1,4 @@
+from enum import Enum
 from pydantic import BaseModel
 from typing import Tuple
 
@@ -23,3 +24,14 @@ class ExtractResponse(BaseModel):
     pais: str | None = None
     telefono: str | None = None
     email: str | None = None
+
+class mailInput(BaseModel):
+    idioma: str
+    importe: float
+    moneda: str
+    numeroPedido: int
+    fechaFactura: str
+
+class mailOutput(BaseModel):
+    email_body: str
+    email_subject: str
