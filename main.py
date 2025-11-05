@@ -2,10 +2,12 @@ import os, tempfile, traceback
 from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.responses import JSONResponse
 from models.data import ExtractResponse
-# from services.ocr import pdf_to_blocks_via_ocr
-from services.pdfReader import has_text_layer, extract_text_blocks
-from services.pdfDataExtraction import extract_fields_from_blocks
+
+from services.pdfReading.pdfReader import has_text_layer, extract_text_blocks
+from services.pdfReading.pdfDataExtraction import extract_fields_from_blocks
 from langdetect import detect, DetectorFactory
+
+from services.mail.generateBody import generateBody
 
 app = FastAPI(
     title="Extractor de Proformas/Facturas",
@@ -65,6 +67,17 @@ async def detect_language(string: str):
         return {"language": lang}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error detectando idioma: {e}")
+
+@app.post("/generateMail")
+async def generate_mail(idioma: str = "", importe: float = 0.0, moneda: str = "EUR", numeroPedido: int = 0, fechaFactura: str = ""):
+    """Genera un correo electrónico de solicitud de pago basado en los datos proporcionados."""
+    try:
+        body = generateBody(idioma, importe, moneda, numeroPedido, fechaFactura)
+        return {"email_body": body}
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generando correo: {e}")
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", port=8000, reload=True)
