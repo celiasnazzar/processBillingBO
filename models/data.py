@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel
-from typing import Tuple
+from typing import Optional, Tuple
 
 class Block(BaseModel):
     text: str
@@ -26,11 +26,11 @@ class ExtractResponse(BaseModel):
     email: str | None = None
 
 class mailInput(BaseModel):
-    idioma: str | None = "en"
-    importe: float
-    moneda: str
-    numeroPedido: int
-    fechaFactura: str
+    idioma: Optional[str] | None = "en"
+    importe: Optional[float]
+    moneda: Optional[str]
+    numeroPedido: Optional[int]
+    fechaFactura: Optional[str]
 
 class mailOutput(BaseModel):
     email_body: str
