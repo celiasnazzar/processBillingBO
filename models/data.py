@@ -26,7 +26,7 @@ class ExtractResponse(BaseModel):
     email: str | None = None
 
 class mailInput(BaseModel):
-    idioma: str
+    idioma: str | None = "en"
     importe: float
     moneda: str
     numeroPedido: int
