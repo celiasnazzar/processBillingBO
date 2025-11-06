@@ -9,15 +9,15 @@ class Block(BaseModel):
     page: int = 0
 
 class ExtractResponse(BaseModel):
-    Numero_proforma: str
+    Numero_proforma: int
     Fecha_de_la_factura: str
-    Numero_de_pedido: str
+    Numero_de_pedido: int
     Referencia_de_pedido: str
     
     Nombre_de_cliente: str
-    Importe: str
+    Importe: float | None = None
     Moneda: str | None = None
-    Unidades: str | None = 0
+    Unidades: int | None = 0
 
     confidence: float
     source: str

@@ -696,14 +696,14 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     print("UNIDADES:", unidades)
 
     return ExtractResponse(
-        Numero_de_pedido=pedido,
+        Numero_de_pedido=int(pedido),
         Nombre_de_cliente=nombre_cliente,
-        Numero_proforma=proforma,
+        Numero_proforma=int(proforma),
         Fecha_de_la_factura=fecha,
         Referencia_de_pedido=ref,
-        Importe=importe,
+        Importe=float(importe),
         Moneda=moneda_iso,
-        Unidades=unidades,        
+        Unidades=int(unidades),
         confidence=confidence,
         source="rule",
         pais=envio_fields["Envio_Pais"],
