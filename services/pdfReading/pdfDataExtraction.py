@@ -441,20 +441,15 @@ def findUnits(blocks: List[Block]) -> str:
 
     return ""
 
-def detect_currency(text: str) -> str:
+def detect_currency(text: Optional[str]) -> str:
+    if not text:
+        return ""
     t = text.upper()
     if 'USD' in t or '$' in t:  return 'USD'
     if 'EUR' in t or '€' in t:  return 'EUR'
     if 'GBP' in t or '£' in t:  return 'GBP'
     return ''
 
-# --- Busca el importe total ---
-def detect_currency(text: str) -> str:
-    t = text.upper()
-    if 'USD' in t or '$' in t:  return 'USD'
-    if 'EUR' in t or '€' in t:  return 'EUR'
-    if 'GBP' in t or '£' in t:  return 'GBP'
-    return ''
 def find_total_amount(blocks: List[Block]) -> Tuple[str, str, float]:
     # candidatos con "TOTAL" y sin contexto de impuestos
     cands = [b for b in blocks if RX_TOTAL_MAIN.search(b.text) and not RX_TOTAL_BADCTX.search(b.text)]
@@ -504,12 +499,12 @@ def find_total_amount(blocks: List[Block]) -> Tuple[str, str, float]:
         if val and float(val) > 0.0:
             # si no hay moneda aún, intenta detectarla en toda la página
             if not cur:
-                page_text = " ".join(x.text for x in blocks if x.page == base.page)
+                page_text = " ".join((x.text or "") for x in blocks if x.page == base.page)
                 cur = detect_currency(page_text)
             return raw, (cur or ''), 0.92
         if best_zero is None:
             # guarda 0,00 por si fuera el único valor
-            page_text = " ".join(x.text for x in blocks if x.page == base.page)
+            page_text = " ".join((x.text or "") for x in blocks if x.page == base.page)
             cur = detect_currency(base.text) or detect_currency(page_text) or ''
             best_zero = (raw, cur)
 
