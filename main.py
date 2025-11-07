@@ -59,14 +59,18 @@ async def extract(pdf: UploadFile = File(...)):
                 pass
 
 @app.post("/detect-language")
-async def detect_language(string: str):
+async def detect_language(string: str | None = ""):
     """Detecta el idioma del texto proporcionado."""
-    DetectorFactory.seed = 0  
+    DetectorFactory.seed = 0
+
+    if not string or not string.strip():
+        return {"language": ""}
+
     try:
         lang = detect(string)
         return {"language": lang}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error detectando idioma: {e}")
+    except Exception:
+        return {"language": ""}
 
 @app.post("/generateMail", response_model=mailOutput)
 async def generate_mail(input: mailInput):
