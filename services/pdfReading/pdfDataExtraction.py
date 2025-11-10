@@ -10,7 +10,8 @@ ORDER_LABEL = r'(?:order|pedido|orden|commande|ordine|auftrag|auftragsnummer|bes
 NUM_LABEL      = r'(?:n[ºo\.]*|no\.?|num\.?|nr\.?|number|#|NO\.)'
 
 RX_ID_GENERIC       = re.compile(r'\b[A-Z0-9][A-Z0-9\-\/\.]{4,}\b')
-RX_REF_YYYY_SLASH   = re.compile(r'\b(20\d{2}\/\d{3,7})\b')
+RX_REF_HASH = re.compile(r'(?<!\w)(#?[A-Z]{2}\d{3,7})(?!\w)', re.I)
+RX_REF_YYYY_SLASH = re.compile(r'\b(20\d{2}\/\d{3,7})\b')
 RX_CURRENCY_TOKEN = re.compile(r'\b(EUR|USD|GBP|EURO|DOLLAR|DÓLAR|POUND)\b|[€$£]', re.I)
 RX_MONEY = re.compile(
     r'(?:EUR|USD|GBP|EURO|€|\$|£)?\s?\d{1,3}(?:[.\s]\d{3})*(?:[.,]\d{2})'
@@ -648,7 +649,7 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
 
     #--- Referencia de pedido ---
     ref = ""
-    mref = RX_REF_YYYY_SLASH.search(text_all)
+    mref = RX_REF_YYYY_SLASH.search(text_all) or RX_REF_HASH.search(text_all)
     if mref: ref, c3 = mref.group(1), 0.9
     else:    ref, c3 = "", 0.0
     print("REF PEDIDO:", ref)
