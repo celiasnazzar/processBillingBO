@@ -155,7 +155,7 @@ async def process_excel(
     if duplicado:
         print("Registro duplicado detectado.")
         return {
-            "duplicado": True,
+            "duplicado": "True",
             "message": "Registro ya existe en el archivo Excel",
             "data": data
         }
@@ -170,7 +170,7 @@ async def process_excel(
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
                 "Content-Disposition": f"attachment; filename=updated_{file.filename}",
-                "duplicado": False
+                "duplicado": "False"
             }
         )
     except Exception as e:
