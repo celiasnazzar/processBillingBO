@@ -342,6 +342,15 @@ def same_line_right_value(anchor_rx, blocks: List[Block], max_dx: int | None = N
 
     return None
 
+def to_int_or_none(value) -> int | None:
+    s = str(value).strip()
+    if s == "":
+        return None
+    try:
+        return int(s)
+    except ValueError:
+        return None
+
 def find_shipping_header_block(blocks):
     cands = [b for b in blocks if HEADER_RX.search(_norm(b.text))]
     if not cands:
@@ -694,7 +703,7 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     return ExtractResponse(
         Numero_de_pedido=int(pedido),
         Nombre_de_cliente=nombre_cliente,
-        Numero_proforma=int(proforma),
+        Numero_proforma=to_int_or_none(proforma),
         Fecha_de_la_factura=fecha,
         Referencia_de_pedido=ref,
         Importe=float(importe),
