@@ -8,6 +8,7 @@ pydantic_settings>=2.7
 pymupdf>=1.24.9          
 pdfplumber>=0.11.0       
 Pillow>=10.4.0  
+pandas>=2.2.0
 
 # --- Detección de idioma ---
 langdetect>=1.0.9
