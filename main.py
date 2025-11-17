@@ -97,19 +97,19 @@ async def generate_mail(input: mailInput):
 
 @app.post("/processExcel")
 async def process_excel(
-    numPedido: int = Form(...),
-    numProforma: int = Form(...),
-    fechaFact: date = Form(...),
-    refPedido: str = Form(...),
-    nomCliente: str = Form(...),
-    importe: float = Form(...),
-    uds: int = Form(...),
-    pais: str = Form(...),
-    email: str = Form(...),
+    numPedido: int = Form(...) | None,
+    numProforma: int = Form(...) | None,
+    fechaFact: date = Form(...) | None,
+    refPedido: str = Form(...)  | None,
+    nomCliente: str = Form(...) | None,
+    importe: float = Form(...) | None,
+    uds: int = Form(...) | None,
+    pais: str = Form(...) | None,
+    email: str = Form(...) | None,
 
-    backOffice: str = Form(...),
-    idioma: str = Form(...),
-    fechaSolicitud: date = Form(...),
+    backOffice: str = Form(...) | None,
+    idioma: str = Form(...) | None,
+    fechaSolicitud: date = Form(...) | None,
     estado: str = Form("Pendiente"),
 
     file: UploadFile = File(...)
