@@ -9,7 +9,7 @@ class Block(BaseModel):
     page: int = 0
 
 class ExtractResponse(BaseModel):
-    Numero_proforma: int
+    Numero_proforma: int | None = None
     Fecha_de_la_factura: str
     Numero_de_pedido: int
     Referencia_de_pedido: str
