@@ -97,20 +97,20 @@ async def generate_mail(input: mailInput):
 
 @app.post("/processExcel")
 async def process_excel(
-    numPedido: int = Form(...) | None,
-    numProforma: int = Form(...) | None,
-    fechaFact: date = Form(...) | None,
-    refPedido: str = Form(...)  | None,
-    nomCliente: str = Form(...) | None,
-    importe: float = Form(...) | None,
-    uds: int = Form(...) | None,
-    pais: str = Form(...) | None,
-    email: str = Form(...) | None,
+    numPedido: int | None = Form(None),
+    numProforma: int | None = Form(None),
+    fechaFact: date | None = Form(None),
+    refPedido: str | None = Form(None),
+    nomCliente: str | None = Form(None),
+    importe: float | None = Form(None),
+    uds: int | None = Form(None),
+    pais: str | None = Form(None),
+    email: str | None = Form(None),
 
-    backOffice: str = Form(...) | None,
-    idioma: str = Form(...) | None,
-    fechaSolicitud: date = Form(...) | None,
-    estado: str = Form("Pendiente"),
+    backOffice: str | None = Form(None),
+    idioma: str | None = Form(None),
+    fechaSolicitud: date | None = Form(None),
+    estado: str | None = Form("Pendiente"),
 
     file: UploadFile = File(...)
 ):
@@ -130,8 +130,9 @@ async def process_excel(
     if not content:
         raise HTTPException(status_code=400, detail="El archivo está vacío")
     
-    dateFact = fechaFact.strftime("%d/%m/%Y")
-    dateSolicitud = fechaSolicitud.strftime("%d/%m/%Y")
+    # Permitir valores nulos en las fechas/otros campos
+    dateFact = fechaFact.strftime("%d/%m/%Y") if fechaFact else None
+    dateSolicitud = fechaSolicitud.strftime("%d/%m/%Y") if fechaSolicitud else None
     
     data = {
         "NUMERO PROFORMA": numProforma,
