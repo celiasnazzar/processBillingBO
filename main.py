@@ -155,11 +155,17 @@ async def process_excel(
     
     if duplicado:
         print("Registro duplicado detectado.")
-        return {
-            "duplicado": "True",
-            "message": "Registro ya existe en el archivo Excel",
-            "data": data
-        }
+        return JSONResponse(
+            status_code=200,
+            content={
+                "duplicado": "true",  
+                "message": "Registro ya existe en el archivo Excel",
+                "data": data,
+            },
+            headers={
+                "X-DUPLICADO": "true"  
+            }
+        )
     
     # Insertar nueva fila
     try:
@@ -172,7 +178,7 @@ async def process_excel(
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
                 "Content-Disposition": f"attachment; filename=updated_{file.filename}",
-                "duplicado": "False"
+                "X-DUPLICADO": "false"
             }
         )
     except Exception as e:
