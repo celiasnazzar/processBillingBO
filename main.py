@@ -153,6 +153,7 @@ async def process_excel(
     duplicado = find_duplicates(numPedido, numProforma, content) 
     
     if duplicado:
+        print("Registro duplicado detectado.")
         return {
             "duplicado": True,
             "message": "Registro ya existe en el archivo Excel",
@@ -162,13 +163,14 @@ async def process_excel(
     # Insertar nueva fila
     try:
         newContent = insertData(data, content)
-        
+        print("Datos insertados correctamente.")
         # Devolver el archivo Excel actualizado
         return Response(
             content=newContent,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={
-                "Content-Disposition": f"attachment; filename=updated_{file.filename}"
+                "Content-Disposition": f"attachment; filename=updated_{file.filename}",
+                "duplicado": False
             }
         )
     except Exception as e:
