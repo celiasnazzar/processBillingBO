@@ -1,8 +1,13 @@
+from datetime import date
+from gettext import find
 import os, tempfile, traceback
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
+from fastapi.responses import Response
 from fastapi.responses import JSONResponse
 from langdetect import detect, DetectorFactory
 
+from services.excelReading.insertData import insertData
+from services.excelReading.excelDuplicates import find_duplicates
 from services.pdfReading.pdfReader import has_text_layer, extract_text_blocks
 from services.pdfReading.pdfDataExtraction import extract_fields_from_blocks
 from services.mail.generateBody import generateBody
@@ -89,6 +94,86 @@ async def generate_mail(input: mailInput):
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando correo: {e}")
+
+@app.post("/processExcel")
+async def process_excel(
+    numPedido: int = Form(...),
+    numProforma: int = Form(...),
+    fechaFact: date = Form(...),
+    refPedido: str = Form(...),
+    nomCliente: str = Form(...),
+    importe: float = Form(...),
+    uds: int = Form(...),
+    pais: str = Form(...),
+    email: str = Form(...),
+
+    backOffice: str = Form(...),
+    idioma: str = Form(...),
+    fechaSolicitud: date = Form(...),
+    estado: str = Form("Pendiente"),
+
+    file: UploadFile = File(...)
+):
+    """
+    Procesa un archivo Excel:
+    1. Verifica si el registro ya existe (duplicado)
+    2. Si no existe, añade la nueva fila
+    3. Devuelve el Excel actualizado
+    """
+    
+    # Validar tipo de archivo
+    if not file.filename.lower().endswith((".xlsx", ".xls")):
+        raise HTTPException(status_code=400, detail="Solo se aceptan archivos Excel (.xlsx o .xls)")
+
+    # Leer contenido del archivo
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="El archivo está vacío")
+    
+    dateFact = fechaFact.strftime("%d/%m/%Y")
+    dateSolicitud = fechaSolicitud.strftime("%d/%m/%Y")
+    
+    data = {
+        "NUMERO PROFORMA": numProforma,
+        "FECHA FACTURA": dateFact,
+        "FECHA SOLICITUD": dateSolicitud,
+        "ESTADO": estado,
+        "NUMERO DE PEDIDO": numPedido,
+        "REFERENCIA PEDIDO": refPedido,
+        "NOMBRE DE CLIENTE": nomCliente,
+        "IMPORTE": importe,
+        "CANTIDAD": uds,
+        "PAIS": pais,
+        "CORREO CLIENTE": email,
+        "BACKOFFICE": backOffice,
+        "IDIOMA 2": idioma
+    }
+
+    # Verificar duplicados
+    duplicado = find_duplicates(numPedido, numProforma, content) 
+    
+    if duplicado:
+        return {
+            "duplicado": True,
+            "message": "Registro ya existe en el archivo Excel",
+            "data": data
+        }
+    
+    # Insertar nueva fila
+    try:
+        newContent = insertData(data, content)
+        
+        # Devolver el archivo Excel actualizado
+        return Response(
+            content=newContent,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": f"attachment; filename=updated_{file.filename}"
+            }
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error al insertar datos: {str(e)}")
+
 
 if __name__ == "__main__":
     import uvicorn
