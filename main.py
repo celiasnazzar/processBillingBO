@@ -163,6 +163,7 @@ async def process_excel(
     
     # Insertar nueva fila
     try:
+        print("Insertando nuevos datos en el archivo Excel...")
         newContent = insertData(data, content)
         print("Datos insertados correctamente.")
         # Devolver el archivo Excel actualizado
