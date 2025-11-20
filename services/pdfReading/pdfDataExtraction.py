@@ -39,13 +39,14 @@ ANCH_TOTAL          = re.compile(r'\bTOTAL(?:E)?\b', re.I)
 ANCH_DATE           = re.compile(r'\b(fecha|date|data|datum)\b', re.I)
 ANCH_DELIVERY       = re.compile(r'INDIRIZZO DI CONSEGNA', re.I)
 TOTAL_RX            = re.compile(r'\bTOTAL(?:E)?\b', re.I)
+RX_TOTAL_EUR_LABEL = re.compile(r'\b(?:TOTAL(?:E)?|GESAMT)\s+EUR\b', re.I)
 UNIT_WORD_RX        = re.compile(r'\b(UND|UNIDAD(?:ES)?|PCS|PZ|PCE)\b', re.I)
 UNIT_NUM_RX         = re.compile(
     r'(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d+)?)(?=\s*(?:UND|UNIDAD(?:ES)?|PCS|PZ|PCE)\b)',
     re.I
 )
 
-RX_ID_TOKEN         = re.compile(r'\b([A-Z]*\d{3,}|[A-Z0-9][A-Z0-9\-\/\.]{1,})\b')
+RX_ID_TOKEN = re.compile(r'\b([A-Z]*\d{3,}|[A-Z0-9][A-Z0-9\-\/\.]{1,})\b')
 _ID                 = r'([A-Z]?\d[\w\-\/\.]{2,}|[A-Z0-9][A-Z0-9\-\/\.]{3,})'
 RX_EMAIL            = re.compile(r'([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})', re.I)
 RX_PHONE            = re.compile(r'(\+?\d[\d\s\-\(\)\.]{7,})')
@@ -191,13 +192,94 @@ def lines_from_blocks(panel: List[Block]) -> List[str]:
         out.append(" ".join(x.text.strip() for x in L).strip())
     return out
 
+def extract_agent_from_blocks(blocks: List[Block], ref_pedido: str) -> str:
+    """
+    El agente está en la MISMA fila visual que la referencia (ej: '2025/4392   FCA. EXPORT ALEMANIA').
+
+    Estrategia:
+    1. Agrupar bloques en filas con _build_lines.
+    2. Localizar la fila que contiene la referencia.
+    3. Tomar todo el texto a la derecha de la referencia (en el mismo bloque y en bloques a la derecha).
+    4. Limpiar y filtrar para evitar cabeceras de tabla/remarks.
+    """
+    if not ref_pedido:
+        return ""
+
+    ref = ref_pedido.strip()
+    if not ref:
+        return ""
+
+    # 1) filas visuales
+    lines = _build_lines(blocks, overlap_min=0.55)
+
+    for L in lines:
+        # ¿Hay algún bloque de esta fila que contenga la referencia?
+        ref_block = None
+        for b in L:
+            if ref in (b.text or ""):
+                ref_block = b
+                break
+
+        if not ref_block:
+            continue
+
+        # 2) texto después de la referencia en el mismo bloque
+        parts: list[str] = []
+        txt = ref_block.text or ""
+        idx = txt.find(ref)
+        if idx != -1:
+            after = txt[idx + len(ref):].strip()
+            if after:
+                parts.append(after)
+
+        # 3) bloques a la derecha en la misma fila
+        ref_x_end = ref_block.bbox[2]
+        for b in L:
+            if b is ref_block:
+                continue
+            # solo bloques claramente a la derecha
+            if b.bbox[0] <= ref_x_end + 1:
+                continue
+            t = (b.text or "").strip()
+            if t:
+                parts.append(t)
+
+        if not parts:
+            # en esta fila no hay nada útil a la derecha
+            continue
+
+        cand = " ".join(parts)
+        cand = cand.replace("\n", " ").strip()
+        if not cand:
+            continue
+
+        u = cand.upper()
+
+        # 4) filtros: evitar cabeceras de tabla o secciones
+        bad_tokens = [
+            "REMARKS", "WEITERE ANMERKUNGEN", "OBSERVACIONES", "NOTES",
+            "CODE", "DESCRIPTION", "DESCRIPCIÓN", "BESCHREIBUNG",
+            "QUANTITY", "MENGE", "PRICE", "PREIS", "DISCOUNT", "RABATT",
+        ]
+        if any(tok in u for tok in bad_tokens):
+            continue
+
+        # evitar líneas de contacto / email
+        if any(tok in u for tok in ("TEL", "PHONE", "EMAIL", "@")):
+            continue
+
+        # requerir mínimo de letras
+        letters = [c for c in cand if c.isalpha()]
+        if len(letters) < 3:
+            continue
+
+        return cand
+
+    return ""
+
 def extract_shipping_fields_from_text(lines: List[str]) -> Dict[str, str]:
     """
-    Espera líneas del panel de envío. Heurísticas:
-    - nombre: primera línea no vacía que NO sea 'TEL/Email' ni empiece por código postal
-    - país: primer match de RX_COUNTRY (última aparición tiene prioridad)
-    - email: primer match RX_EMAIL
-    - teléfono: número más largo (prioriza líneas con 'TEL')
+    Extrae campos del panel de envío (nombre, país, teléfono, email).
     """
     name = ""
     country = ""
@@ -211,12 +293,13 @@ def extract_shipping_fields_from_text(lines: List[str]) -> Dict[str, str]:
             email = m.group(1).lower()
             break
 
-    # 2) teléfono (prioriza línea con 'TEL')
+    # 2) teléfono
     phone_candidates = []
     for ln in lines:
         if 'TEL' in ln.upper() or 'PHONE' in ln.upper():
             phone_candidates.append(ln)
-    phone_candidates += lines  # fallback
+    phone_candidates += lines
+    
     best = ""
     for ln in phone_candidates:
         for m in RX_PHONE.finditer(ln):
@@ -225,27 +308,28 @@ def extract_shipping_fields_from_text(lines: List[str]) -> Dict[str, str]:
                 best = cand
     phone = best
 
-    # 3) país (última aparición)
+    # 3) país
     for ln in lines:
         for m in RX_COUNTRY.finditer(ln):
             country = m.group(0).upper()
-    # homogeniza algunas variantes
+    
     country = (country
                .replace('FRANCE', 'FRANCIA')
                .replace('ITALY', 'ITALIA')
                .replace('SPAIN', 'ESPAÑA')
                .replace('ROUMANIE', 'RUMANIA'))
 
-    # 4) nombre (primera línea “tipo nombre”)
+    # 4) nombre principal
     for ln in lines:
         s = ln.strip()
         if not s:
             continue
-        if s.upper().startswith(('TEL', 'EMAIL', 'ADRESSE', 'ADDRESS', 'DIRECCIÓN', 'INDIRIZZO')):
+        if s.upper().startswith(('TEL', 'PHONE', 'EMAIL', 'ADRESSE', 'ADDRESS',
+                                 'DIRECCIÓN', 'DIRECCION', 'INDIRIZZO',
+                                 'GOODS DELIVERY', 'LIEFERADRESSE')):
             continue
-        if any(tok in s.upper() for tok in ('CP', 'C.P.', 'ZIP', 'BP ')):
+        if any(tok in s.upper() for tok in ('CP', 'C.P.', 'ZIP', 'BP ', 'DPU')):
             continue
-        # evita que coja líneas que son solo país
         if RX_COUNTRY.fullmatch(s):
             continue
         name = s
@@ -261,13 +345,13 @@ def extract_shipping_fields_from_text(lines: List[str]) -> Dict[str, str]:
         "Envio_Email": email,
     }
 
-def extract_shipping_fields(blocks: List[Block]) -> Dict[str, str]:
+def extract_shipping_fields(blocks: List[Block], ref_pedido: str = "") -> Dict[str, str]:
+    """Extrae campos de envío + agente (que está en la línea de la referencia)."""
     panel = get_shipping_panel_blocks(blocks)
     lines = lines_from_blocks(panel)
-    nombre = shipping_name_from_header_v2(lines)
-
+    
     fields = extract_shipping_fields_from_text(lines)
-           
+    
     return fields
 
 def cleanup_amount(raw: str) -> str:
@@ -309,7 +393,6 @@ def same_line_right_value(anchor_rx, blocks: List[Block], max_dx: int | None = N
         if re.fullmatch(r'\d{1,6}|[A-Z0-9\-\/\.]{2,}', val):
             return val
 
-
     # 3) bloques a la derecha con solape vertical suficiente
     window_right = [
         b for b in blocks
@@ -318,11 +401,16 @@ def same_line_right_value(anchor_rx, blocks: List[Block], max_dx: int | None = N
         and (b.bbox[0] - x1) <= max_dx
         and y_overlap_ratio(b, base) >= 0.6
     ]
-    # prioriza: más a la derecha y solape mayor
     window_right.sort(key=lambda b: (-b.bbox[0], -y_overlap_ratio(b, base)))
 
     for r in window_right:
-        m = RX_ID_TOKEN.search(r.text)
+        text = r.text or ""
+        m = RX_ID_TOKEN.search(text)
+
+        # --- Fallback especial para PROFORMA: aceptar 1–6 dígitos ---
+        if not m and anchor_rx is ANCH_PROFORMA:
+            m = re.search(r'\b(\d{1,6})\b', text)
+
         if m and m.group(1):
             return m.group(1).strip()
 
@@ -336,7 +424,13 @@ def same_line_right_value(anchor_rx, blocks: List[Block], max_dx: int | None = N
     ]
     window_right2.sort(key=lambda b: (-b.bbox[0], -y_overlap_ratio(b, base)))
     for r in window_right2:
-        m = RX_ID_TOKEN.search(r.text)
+        text = r.text or ""
+        m = RX_ID_TOKEN.search(text)
+
+        # mismo fallback para PROFORMA
+        if not m and anchor_rx is ANCH_PROFORMA:
+            m = re.search(r'\b(\d{1,6})\b', text)
+
         if m and m.group(1):
             return m.group(1).strip()
 
@@ -461,14 +555,15 @@ def detect_currency(text: Optional[str]) -> str:
     return ''
 
 def find_total_amount(blocks: List[Block]) -> Tuple[str, str, float]:
-    # candidatos con "TOTAL" y sin contexto de impuestos
-    cands = [b for b in blocks if RX_TOTAL_MAIN.search(b.text) and not RX_TOTAL_BADCTX.search(b.text)]
-    if not cands:
-        return "", "", 0.0
+    # --- 1) INTENTO ESPECÍFICO: "TOTAL EUR / TOTALE EUR / GESAMT EUR" ---
 
-    def same_row_amount(base: Block):
+    def same_row_amount(base: Block) -> Tuple[Optional[str], Optional[str]]:
         # Busca importe en la MISMA fila visual que 'base'
-        m_inline = re.search(r'\bTOTAL(?:E)?|GESAMT\b.*?(' + RX_MONEY.pattern + r')', base.text, re.I)
+        m_inline = re.search(
+            r'\b(?:TOTAL(?:E)?|GESAMT)\b.*?(' + RX_MONEY.pattern + r')',
+            base.text,
+            re.I
+        )
         if m_inline:
             raw = m_inline.group(1)
             cur = detect_currency(base.text) or detect_currency(raw)
@@ -482,7 +577,6 @@ def find_total_amount(blocks: List[Block]) -> Tuple[str, str, float]:
             and (r.bbox[0] - base.bbox[2]) <= 600.0
             and y_overlap_ratio(r, base) >= 0.45
         ]
-        # prioriza quien tenga token de moneda
         row.sort(key=lambda r: (0 if RX_CURRENCY_TOKEN.search(r.text) else 1,
                                 -y_overlap_ratio(r, base),
                                 r.bbox[0]))
@@ -490,16 +584,35 @@ def find_total_amount(blocks: List[Block]) -> Tuple[str, str, float]:
             m = RX_MONEY.search(r.text)
             if m:
                 raw = m.group(0)
-                # moneda: primero base, luego bloque vecino, luego importe
                 cur = (detect_currency(base.text)
                        or detect_currency(r.text)
                        or detect_currency(raw))
                 return raw, cur
 
-        # 3) Si no hay importe en la misma fila, aborta
         return None, None
 
+    # --- 1A) Candidatos con "TOTAL EUR / TOTALE EUR / GESAMT EUR" ---
+    eur_cands = [b for b in blocks if RX_TOTAL_EUR_LABEL.search(b.text)]
+    if eur_cands:
+        # De abajo hacia arriba: el último TOTAL EUR de la página
+        for base in sorted(eur_cands, key=lambda b: (b.page, -b.bbox[1], b.bbox[0])):
+            raw, cur = same_row_amount(base)
+            if not raw:
+                continue
+            val = cleanup_amount(raw)
+            if val and float(val) > 0.0:
+                # Forzamos EUR porque la etiqueta ya lo indica
+                return raw, 'EUR', 0.95
+
+    # --- 2) LÓGICA GENÉRICA (tu código actual, casi igual) ---
+
+    cands = [b for b in blocks if RX_TOTAL_MAIN.search(b.text)
+             and not RX_TOTAL_BADCTX.search(b.text)]
+    if not cands:
+        return "", "", 0.0
+
     best_zero = None
+
     # Recorre de ABAJO hacia arriba (el TOTAL final suele ser el más bajo)
     for base in sorted(cands, key=lambda b: (b.page, -b.bbox[1], b.bbox[0])):
         raw, cur = same_row_amount(base)
@@ -507,13 +620,11 @@ def find_total_amount(blocks: List[Block]) -> Tuple[str, str, float]:
             continue
         val = cleanup_amount(raw)
         if val and float(val) > 0.0:
-            # si no hay moneda aún, intenta detectarla en toda la página
             if not cur:
                 page_text = " ".join((x.text or "") for x in blocks if x.page == base.page)
                 cur = detect_currency(page_text)
             return raw, (cur or ''), 0.92
         if best_zero is None:
-            # guarda 0,00 por si fuera el único valor
             page_text = " ".join((x.text or "") for x in blocks if x.page == base.page)
             cur = detect_currency(base.text) or detect_currency(page_text) or ''
             best_zero = (raw, cur)
@@ -526,9 +637,11 @@ def find_total_amount(blocks: List[Block]) -> Tuple[str, str, float]:
     for b in blocks:
         for m in RX_MONEY.finditer(b.text):
             try:
-                mx.append((float(cleanup_amount(m.group(0)) or 0),
-                           m.group(0),
-                           detect_currency(b.text) or detect_currency(m.group(0))))
+                mx.append((
+                    float(cleanup_amount(m.group(0)) or 0),
+                    m.group(0),
+                    detect_currency(b.text) or detect_currency(m.group(0))
+                ))
             except:
                 pass
     if mx:
@@ -663,6 +776,10 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     else:    ref, c3 = "", 0.0
     print("REF PEDIDO:", ref)
 
+    #--- Agente ---
+    agente = extract_agent_from_blocks(blocks, ref)
+    print("AGENTE:", agente)
+
     # --- Importe total ---
     importe_raw, c5 = "", 0.0
     importe_raw, moneda_iso, c5 = find_total_amount(blocks)
@@ -714,4 +831,5 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
         pais=envio_fields["Envio_Pais"],
         telefono=envio_fields["Envio_Telefono"],
         email=envio_fields["Envio_Email"],
+        agente=agente,
     )

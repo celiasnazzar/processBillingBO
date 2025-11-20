@@ -24,6 +24,7 @@ class ExtractResponse(BaseModel):
     pais: str | None = None
     telefono: str | None = None
     email: str | None = None
+    agente: str | None = None
 
 class mailInput(BaseModel):
     idioma: Optional[str] | None = "en"
