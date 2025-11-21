@@ -85,43 +85,6 @@ HEADER_RX = re.compile(
     re.I
 )
 
-def debug_dump_left_panel(blocks):
-    hdr = find_shipping_header_block(blocks)
-    print(f"[debug] header_derecho_encontrado={bool(hdr)}")
-    if not hdr:
-        print("[debug] No se encontró el header de ENVÍO. Revisa HEADER_RX / HEADERS.")
-        return
-
-    left_blocks = get_billing_panel_blocks(blocks)
-    print(f"[debug] nº_bloques_izquierda={len(left_blocks)} (page={hdr.page})")
-    # 1) Líneas agregadas (lo que usa extract_billing_name)
-    left_lines = lines_from_blocks(left_blocks)
-    print("[debug] LÍNEAS PANEL IZQUIERDO (orden de arriba a abajo):")
-    for i, ln in enumerate(left_lines[:30], 1):
-        print(f"  {i:02d}. {ln}")
-
-    # 2) (Opcional) Bloques crudos con bbox para ver si hay ruido
-    print("[debug] BLOQUES CRUDOS (x0,y0,x1,y1):")
-    for b in sorted(left_blocks, key=lambda x: (x.bbox[1], x.bbox[0]))[:50]:
-        x0,y0,x1,y1 = map(int, b.bbox)
-        print(f"  [{x0:4d},{y0:4d},{x1:4d},{y1:4d}]  {b.text.strip()}")
-
-def debug_pick_billing_name(blocks: List[Block]) -> None:
-    panel = get_billing_panel_blocks(blocks)
-    lines = lines_from_blocks(panel)
-    print("[debug-pick] candidatas panel izq.:")
-    for i, ln in enumerate(lines, 1):
-        tag = []
-        s = ln.strip()
-        if EXCLUDE_LEFT_LABELS.search(s): tag.append("EXC_LABEL")
-        if EXCLUDE_LEGAL.search(s):       tag.append("EXC_LEGAL")
-        if RX_ONLY_COUNTRY.fullmatch(s):  tag.append("ONLY_COUNTRY")
-        if RX_DATE.fullmatch(s):          tag.append("ONLY_DATE")
-        if re.fullmatch(r'\d{3,}', s):    tag.append("ONLY_NUM")
-        first = s.split("\n",1)[0].strip() if "\n" in s else s
-        print(f"  {i:02d}. {first}   [{', '.join(tag) or 'ok'}]")
-
-
 def _norm(s: str) -> str:
     s = s.replace('\xa0', ' ')                 
     s = _deaccent(s)
@@ -515,6 +478,21 @@ def extract_billing_name(blocks: List[Block]) -> str:
 
     return ""
 
+# --- Divide el nombre del cliente en código y nombre ---
+def split_nombre_cliente(nombre_cliente: str) -> Tuple[str, str]:
+    nombre_cliente = nombre_cliente.strip()
+    if not nombre_cliente:
+        return "", ""
+
+    # Buscar un código al inicio ( números, al menos 2 caracteres)
+    m = re.match(r'^([0-9][0-9\-\/\.]{1,8})\s+(.*)$', nombre_cliente, re.I)
+    if m:
+        codigo = m.group(1).strip()
+        nombre = m.group(2).strip()
+        return codigo, nombre
+
+    # Si no hay código, devolver vacío y el nombre completo
+    return "", nombre_cliente
 
 # --- Busca el bloque con la información de las unidades vendidas ---
 def findUnits(blocks: List[Block]) -> str:
@@ -792,6 +770,7 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
 
     # --- Información del panel de cliente ---
     nombre_cliente = extract_billing_name(blocks)
+    codigo_cliente, nombre_cliente = split_nombre_cliente(nombre_cliente)
     print("NOMBRE CLIENTE:", nombre_cliente)
 
     # --- Fecha ---
@@ -820,6 +799,7 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     return ExtractResponse(
         Numero_de_pedido=int(pedido),
         Nombre_de_cliente=nombre_cliente,
+        Codigo_de_cliente=codigo_cliente,
         Numero_proforma=to_int_or_none(proforma),
         Fecha_de_la_factura=fecha,
         Referencia_de_pedido=ref,
