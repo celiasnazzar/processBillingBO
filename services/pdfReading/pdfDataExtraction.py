@@ -793,6 +793,7 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
 
     # --- Unidades ---
     unidades = findUnits(blocks)
+    unidades_clean = unidades.replace(".", "") if unidades else "0"
     confidence = round((c1+c2+c3+c5+c6)/6, 2)
     print("UNIDADES:", unidades)
 
@@ -805,7 +806,7 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
         Referencia_de_pedido=ref,
         Importe=float(importe),
         Moneda=moneda_iso,
-        Unidades=int(unidades),
+        Unidades=int(unidades_clean),
         confidence=confidence,
         source="rule",
         pais=envio_fields["Envio_Pais"],
