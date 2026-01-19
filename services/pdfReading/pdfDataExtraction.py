@@ -69,6 +69,7 @@ COUNTRIES = [
     r'ESTONIA|ESTONIE', r'LUXEMBOURG|LUXEMBURGO|LUXEMBOURG', r'ICELAND|ISLANDIA|ISLANDE'
     r'RUSIA|RUSSIAN FEDERATION|FÉDÉRATION DE RUSSIE|FEDERACIÓN RUSA',
     r'UKRAINE|UCRANIA|UKRAINE', r'SERBIA|SERBIE', r'ALBANIA|ALBANIE', r'MACEDONIA|MACÉDOINE|MACEDONIE',
+    r'MONTENEGRO|MONTÉNÉGRO', r'BELARUS|BIELORRUSIA|BÉLARUS|BIELORUSSIE'
 ]
 RX_COUNTRY          = re.compile(r'\b(?:' + '|'.join(COUNTRIES) + r')\b', re.I)
 HEADERS = [
@@ -288,10 +289,11 @@ def extract_shipping_fields_from_text(lines: List[str]) -> Dict[str, str]:
             country = m.group(0).upper()
     
     country = (country
-               .replace('FRANCE', 'FRANCIA')
-               .replace('ITALY', 'ITALIA')
-               .replace('SPAIN', 'ESPAÑA')
-               .replace('ROUMANIE', 'RUMANIA'))
+                .replace('FRANCE', 'FRANCIA')
+                .replace('ITALY', 'ITALIA')
+                .replace('SPAIN', 'ESPAÑA')
+                .replace('ROUMANIE', 'RUMANIA')
+                .replace('BELARUS', 'BIELORRUSIA'))
 
     # 4) nombre principal
     for ln in lines:
