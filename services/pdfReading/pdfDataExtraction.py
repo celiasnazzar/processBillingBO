@@ -457,6 +457,51 @@ def get_billing_panel_blocks(blocks):
     ]
     return left
 
+RX_ORDER_LABEL_BLOCK = re.compile(fr'\b{ORDER_LABEL}\b', re.I)
+RX_TABLE_HEADER_ROW  = re.compile(
+    r'\b(DESCRIPTION|DESCRIPCI[OÓ]N|BESCHREIBUNG|DESCRIZIONE|DESCRIPTION|'
+    r'C[OÓ]DIGO|CODE|QUANTITY|CANTIDAD|MENGE|QUANTIT[AÀ]|PRECIO|PREIS|PRICE)\b',
+    re.I
+)
+
+def get_reference_panel_blocks(blocks: List[Block]) -> List[Block]:
+    """
+    Bloques del campo libre donde van la referencia y el agente juntos
+    (ej: '2025/4392   FCA. EXPORT ALEMANIA'), acotados a la banda vertical
+    entre la fila 'ORDER N.' / 'Nº PEDIDO' y la cabecera de la tabla de
+    artículos ('DESCRIPTION' / 'DESCRIPCIÓN' / 'CÓDIGO' / ...).
+
+    No se ancla a la etiqueta 'REMARKS' porque varía por idioma (en algunas
+    plantillas es 'OBSERVACIONES:', 'WEITERE ANMERKUNGEN', etc.) y a veces ni
+    siquiera está presente; en cambio 'ORDER N.' y la cabecera de la tabla ya
+    tienen listas de sinónimos multi-idioma consolidadas en el resto del
+    fichero. Solo en la página donde aparece 'ORDER N.' por primera vez, y
+    restringido a la columna derecha para descartar el pie legal ('Inscrita
+    en Registro mercantil...') que cae en la misma franja de Y pero pegado
+    al borde izquierdo de la página.
+    """
+    order_cands = [b for b in blocks if RX_ORDER_LABEL_BLOCK.search(b.text)]
+    if not order_cands:
+        return []
+    order_block = sorted(order_cands, key=lambda b: (b.page, b.bbox[1], b.bbox[0]))[0]
+    y_min = order_block.bbox[3]
+
+    header_cands = [
+        b for b in blocks
+        if b.page == order_block.page
+        and b.bbox[1] > y_min
+        and RX_TABLE_HEADER_ROW.search(b.text)
+    ]
+    y_max = min((b.bbox[1] for b in header_cands), default=float('inf'))
+
+    return [
+        b for b in blocks
+        if b.page == order_block.page
+        and b.bbox[1] >= y_min
+        and b.bbox[1] < y_max
+        and b.bbox[0] > 100
+    ]
+
 RX_LEADING_ORDERNUM = re.compile(r'^\s*\d{3,}\s+(.+)$') 
 RX_ONLY_COUNTRY     = re.compile(r'^\s*(?:' + '|'.join(COUNTRIES) + r')\s*$', re.I)
 EXCLUDE_LEFT_LABELS = re.compile(
@@ -693,16 +738,20 @@ def _y_overlap(a: Tuple[float,float,float,float], b: Tuple[float,float,float,flo
 
 # --- agrupa bloques en filas visuales ---
 def _build_lines(blocks: List[Block], overlap_min: float = 0.55) -> List[List[Block]]:
-    """Agrupa bloques en filas por solape vertical; cada fila = lista de bloques ordenados por X."""
-    if not blocks: 
+    """Agrupa bloques en filas por solape vertical; cada fila = lista de bloques ordenados por X.
+
+    Una fila visual nunca puede cruzar páginas: se agrupa primero por página y solo
+    dentro de ella por solape en Y (si no, plantillas repetidas en varias páginas
+    fusionan por error filas de páginas distintas que comparten coordenada Y)."""
+    if not blocks:
         return []
 
-    bs = sorted(blocks, key=lambda b: (b.bbox[1], b.bbox[0]))
+    bs = sorted(blocks, key=lambda b: (b.page, b.bbox[1], b.bbox[0]))
     lines: List[List[Block]] = []
     for b in bs:
         placed = False
         for L in lines:
-            if _y_overlap(b.bbox, L[0].bbox) >= overlap_min:
+            if L[0].page == b.page and _y_overlap(b.bbox, L[0].bbox) >= overlap_min:
                 L.append(b); placed = True; break
         if not placed:
             lines.append([b])
@@ -765,7 +814,8 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
 
     #--- Referencia de pedido ---
     ref = ""
-    mref = RX_REF_YYYY_SLASH.search(text_all) or RX_REF_HASH.search(text_all)
+    ref_panel_text = "\n".join(b.text for b in get_reference_panel_blocks(blocks))
+    mref = RX_REF_YYYY_SLASH.search(ref_panel_text) or RX_REF_HASH.search(ref_panel_text)
     if mref: ref, c3 = mref.group(1), 0.9
     else:    ref, c3 = "", 0.0
     print("REF PEDIDO:", ref)
