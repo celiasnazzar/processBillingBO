@@ -11,6 +11,9 @@ Pillow>=10.4.0
 pandas>=2.2.0
 openpyxl>=3.1.3
 
+# --- Base de datos (cobro_proforma, MySQL) ---
+pymysql>=1.1.0
+
 # --- Detección de idioma ---
 langdetect>=1.0.9
 

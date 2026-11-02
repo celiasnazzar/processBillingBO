@@ -3,6 +3,7 @@ from typing import List, Optional, Tuple, Dict
 from dateutil import parser as dtp
 from models.data import Block, ExtractResponse
 from settings import settings
+from services.database.cobroProforma import find_client_email
 
 # --- regex y anchors ---
 PROFORMA_LABEL = r'(?:pro[\s\-]?forma(?:\s*invoice)?|factura\s*proforma|fattura\s*proforma)'
@@ -49,6 +50,12 @@ UNIT_NUM_RX         = re.compile(
 RX_ID_TOKEN = re.compile(r'\b([A-Z]*\d{3,}|[A-Z0-9][A-Z0-9\-\/\.]{1,})\b')
 _ID                 = r'([A-Z]?\d[\w\-\/\.]{2,}|[A-Z0-9][A-Z0-9\-\/\.]{3,})'
 RX_EMAIL            = re.compile(r'([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})', re.I)
+RX_EMAIL_STRICT     = re.compile(r'[A-Z0-9._%+\-]+@[A-Z0-9\-]+(?:\.[A-Z0-9\-]+)*\.[A-Z]{2,}', re.I)
+RX_EMAIL_LABEL      = re.compile(r'^\s*(?:E-?MAIL|CORREO)\s*:?\s*(.*)$', re.I)
+RX_AT_TOKEN         = re.compile(r'\S*@\S*')
+# Dominios de proveedores conocidos cortados por la plantilla (gmail.co, hotmail.c, ...)
+RX_EMAIL_TRUNCATED  = re.compile(
+    r'@(?:gmail|googlemail|hotmail|outlook|yahoo|live|icloud|msn|aol)\.(?:c|co)?$', re.I)
 RX_PHONE            = re.compile(r'(\+?\d[\d\s\-\(\)\.]{7,})')
 HDR_SHIP            = re.compile(
     r'\b(?:GOODS\s+DELIVERY\s+ADDRESS|DELIVERY\s+ADDRESS|ADRESSE\s+LIVRAISON|'
@@ -270,6 +277,7 @@ def extract_shipping_fields_from_text(lines: List[str]) -> Dict[str, str]:
         if m:
             email = m.group(1).lower()
             break
+    email_incompleto = is_email_incomplete(email, lines)
 
     # 2) teléfono
     phone_candidates = []
@@ -322,7 +330,25 @@ def extract_shipping_fields_from_text(lines: List[str]) -> Dict[str, str]:
         "Envio_Pais": country,
         "Envio_Telefono": phone,
         "Envio_Email": email,
+        "Envio_Email_Incompleto": email_incompleto,
     }
+
+def is_email_incomplete(email: str, lines: List[str]) -> bool:
+    """
+    True si hay texto de email en el panel pero no es una dirección válida
+    (p. ej. cortada por la plantilla: ALGO@GMAIL.CO, ALGO@GMAIL., ALGO@).
+    False si el email es válido o si no hay ningún texto de email.
+    """
+    if email:
+        return not RX_EMAIL_STRICT.fullmatch(email) or bool(RX_EMAIL_TRUNCATED.search(email))
+
+    for ln in lines:
+        if RX_AT_TOKEN.search(ln):
+            return True
+        ml = RX_EMAIL_LABEL.match(ln)
+        if ml and ml.group(1).strip():
+            return True
+    return False
 
 def extract_shipping_fields(blocks: List[Block], ref_pedido: str = "") -> Dict[str, str]:
     """Extrae campos de envío + agente (que está en la línea de la referencia)."""
@@ -863,11 +889,20 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     confidence = round((c1+c2+c3+c5+c6)/6, 2)
     print("UNIDADES:", unidades)
 
+    # --- Email incompleto: se recupera de BD por nº de pedido ---
+    email = envio_fields["Envio_Email"]
+    num_proforma = to_int_or_none(proforma)
+    if envio_fields["Envio_Email_Incompleto"] and pedido:
+        email_bd = find_client_email(int(pedido))
+        print(f"EMAIL INCOMPLETO: '{email}' (pedido={pedido}) -> BD: {email_bd}")
+        if email_bd:
+            email = email_bd
+
     return ExtractResponse(
         Numero_de_pedido=int(pedido),
         Nombre_de_cliente=nombre_cliente,
         Codigo_de_cliente=codigo_cliente,
-        Numero_proforma=to_int_or_none(proforma),
+        Numero_proforma=num_proforma,
         Fecha_de_la_factura=fecha,
         Referencia_de_pedido=ref,
         Importe=float(importe),
@@ -877,6 +912,6 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
         source="rule",
         pais=envio_fields["Envio_Pais"],
         telefono=envio_fields["Envio_Telefono"],
-        email=envio_fields["Envio_Email"],
+        email=email,
         agente=agente,
     )
