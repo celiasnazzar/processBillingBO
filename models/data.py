@@ -25,6 +25,10 @@ class ExtractResponse(BaseModel):
     telefono: str | None = None
     email: str | None = None
     es_email_pdf_valido: bool = False
+    # Campos para /ingesta/cobros. Si el email no es válido, n8n los sobrescribe con /correct-customer-email
+    email_cliente: str = ""
+    es_email_corregido: int = 0
+    email_pdf_cliente: str = ""
     agente: str | None = None
 
 class mailInput(BaseModel):
@@ -44,7 +48,11 @@ class correctEmailInput(BaseModel):
 
 class correctEmailOutput(BaseModel):
     email_aplicado: str
-    email_bd: Optional[str] = None
+    email_bd: str = ""
     es_corregido: bool
     motivo: Optional[Literal["match", "replaced", "bd_sin_email", "bd_no_disponible"]] = None
     es_email_pdf_valido: bool
+    # Campos para /ingesta/cobros
+    email_cliente: str
+    es_email_corregido: int
+    email_pdf_cliente: str

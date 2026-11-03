@@ -886,6 +886,10 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     unidades_clean = unidades.replace(".", "") if unidades else "0"
     print("UNIDADES:", unidades)
 
+    # --- Email: si no es válido, email_cliente queda vacío hasta /correct-customer-email ---
+    email = envio_fields["Envio_Email"]
+    email_valido = is_valid_email(email)
+
     return ExtractResponse(
         Numero_de_pedido=int(pedido),
         Nombre_de_cliente=nombre_cliente,
@@ -899,7 +903,10 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
         source="rule",
         pais=envio_fields["Envio_Pais"],
         telefono=envio_fields["Envio_Telefono"],
-        email=envio_fields["Envio_Email"],
-        es_email_pdf_valido=is_valid_email(envio_fields["Envio_Email"]),
+        email=email,
+        es_email_pdf_valido=email_valido,
+        email_cliente=email if email_valido else "",
+        es_email_corregido=0,
+        email_pdf_cliente="",
         agente=agente,
     )
