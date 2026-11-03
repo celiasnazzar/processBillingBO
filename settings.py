@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     DB_PORT: int = 3306
     DB_NAME: str = "cobro_proforma"
     DB_USER: str = "cobro_n8n"
-    DB_PASSWORD: str = "k)D1!.65ly(yD8YpNw/-"
+    DB_PASSWORD: str = ""
     DB_CONNECT_TIMEOUT_S: int = 10
     # SSL con certificados de cliente (rutas a los ficheros).
     # Alternativa sin certificados: DB_SSL=required (cifra pero no valida el servidor).

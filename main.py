@@ -11,8 +11,9 @@ from services.excelReading.excelDuplicates import find_duplicates
 from services.pdfReading.pdfReader import has_text_layer, extract_text_blocks
 from services.pdfReading.pdfDataExtraction import extract_fields_from_blocks
 from services.mail.generateBody import generateBody
+from services.mail.correctCustomerEmail import correctCustomerEmail
 
-from models.data import ExtractResponse, mailInput, mailOutput
+from models.data import ExtractResponse, mailInput, mailOutput, correctEmailInput, correctEmailOutput
 
 app = FastAPI(
     title="Extractor de Proformas/Facturas",
@@ -94,6 +95,11 @@ async def generate_mail(input: mailInput):
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error generando correo: {e}")
+
+@app.post("/correct-customer-email", response_model=correctEmailOutput)
+def correct_customer_email(input: correctEmailInput):
+    """Corrige el email del PDF con el de la BD de clientes. n8n lo llama solo si es_email_pdf_valido es false."""
+    return correctCustomerEmail(input.num_pedido, input.email_pdf)
 
 @app.post("/processExcel")
 async def process_excel(

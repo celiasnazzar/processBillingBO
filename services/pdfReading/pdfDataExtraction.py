@@ -3,7 +3,6 @@ from typing import List, Optional, Tuple, Dict
 from dateutil import parser as dtp
 from models.data import Block, ExtractResponse
 from settings import settings
-from services.database.cobroProforma import find_client_email
 
 # --- regex y anchors ---
 PROFORMA_LABEL = r'(?:pro[\s\-]?forma(?:\s*invoice)?|factura\s*proforma|fattura\s*proforma)'
@@ -277,7 +276,8 @@ def extract_shipping_fields_from_text(lines: List[str]) -> Dict[str, str]:
         if m:
             email = m.group(1).lower()
             break
-    email_incompleto = is_email_incomplete(email, lines)
+    if not email:
+        email = find_raw_email_text(lines)
 
     # 2) teléfono
     phone_candidates = []
@@ -330,25 +330,27 @@ def extract_shipping_fields_from_text(lines: List[str]) -> Dict[str, str]:
         "Envio_Pais": country,
         "Envio_Telefono": phone,
         "Envio_Email": email,
-        "Envio_Email_Incompleto": email_incompleto,
     }
 
-def is_email_incomplete(email: str, lines: List[str]) -> bool:
+def find_raw_email_text(lines: List[str]) -> str:
     """
-    True si hay texto de email en el panel pero no es una dirección válida
-    (p. ej. cortada por la plantilla: ALGO@GMAIL.CO, ALGO@GMAIL., ALGO@).
-    False si el email es válido o si no hay ningún texto de email.
+    Texto de email tal como aparece en el panel cuando no es una dirección completa
+    (p. ej. cortada por la plantilla: ALGO@GMAIL., ALGO@). Vacío si no hay texto de email.
     """
-    if email:
-        return not RX_EMAIL_STRICT.fullmatch(email) or bool(RX_EMAIL_TRUNCATED.search(email))
-
     for ln in lines:
-        if RX_AT_TOKEN.search(ln):
-            return True
+        m = RX_AT_TOKEN.search(ln)
+        if m:
+            return m.group(0).lower()
+    for ln in lines:
         ml = RX_EMAIL_LABEL.match(ln)
         if ml and ml.group(1).strip():
-            return True
-    return False
+            return ml.group(1).strip().lower()
+    return ""
+
+def is_valid_email(email: str) -> bool:
+    """False si está vacío, no cumple la sintaxis o es un dominio conocido recortado (gmail.co, hotmail.c...)."""
+    email = (email or "").strip()
+    return bool(RX_EMAIL_STRICT.fullmatch(email)) and not RX_EMAIL_TRUNCATED.search(email)
 
 def extract_shipping_fields(blocks: List[Block], ref_pedido: str = "") -> Dict[str, str]:
     """Extrae campos de envío + agente (que está en la línea de la referencia)."""
@@ -828,22 +830,19 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
 
     # --- Nº de proforma ---
     proforma = same_line_right_value(ANCH_PROFORMA, blocks) or ""
-    c1 = 0.9 if proforma else 0.0
     print("N PROFORMA:", proforma)
 
     #--- Nº de pedido ---
     pedido = find_order_number_from_lines(blocks)
     if not pedido:
         pedido = find_order_number(blocks)
-    c2 = 0.9 if pedido else 0.0
     print("N PEDIDO:", pedido)
 
     #--- Referencia de pedido ---
     ref = ""
     ref_panel_text = "\n".join(b.text for b in get_reference_panel_blocks(blocks))
     mref = RX_REF_YYYY_SLASH.search(ref_panel_text) or RX_REF_HASH.search(ref_panel_text)
-    if mref: ref, c3 = mref.group(1), 0.9
-    else:    ref, c3 = "", 0.0
+    if mref: ref = mref.group(1)
     print("REF PEDIDO:", ref)
 
     #--- Agente ---
@@ -851,8 +850,7 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     print("AGENTE:", agente)
 
     # --- Importe total ---
-    importe_raw, c5 = "", 0.0
-    importe_raw, moneda_iso, c5 = find_total_amount(blocks)
+    importe_raw, moneda_iso, _ = find_total_amount(blocks)
     importe = cleanup_amount(importe_raw or "")
     print("IMPORTE TOTAL:", importe_raw, "->", importe)
 
@@ -866,52 +864,42 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     print("NOMBRE CLIENTE:", nombre_cliente)
 
     # --- Fecha ---
-    fecha, c6 = "", 0.0
+    fecha = ""
     date_blocks = [b for b in blocks if ANCH_DATE.search(b.text)]
     if date_blocks:
         base = date_blocks[0]
         md = RX_DATE.search(base.text)
-        if md: fecha, c6 = parse_date(md.group(1)), 0.9
+        if md: fecha = parse_date(md.group(1))
         else:
             neigh = [b for b in blocks if b.page==base.page and abs(b.bbox[1]-base.bbox[1])<40 and b is not base]
             for n in neigh:
                 md2 = RX_DATE.search(n.text)
-                if md2: fecha, c6 = parse_date(md2.group(1)), 0.85; break
+                if md2: fecha = parse_date(md2.group(1)); break
     if not fecha:
         md = RX_DATE.search(text_all)
-        if md: fecha, c6 = parse_date(md.group(1)), 0.6
+        if md: fecha = parse_date(md.group(1))
     
     print("FECHA:", fecha)
 
     # --- Unidades ---
     unidades = findUnits(blocks)
     unidades_clean = unidades.replace(".", "") if unidades else "0"
-    confidence = round((c1+c2+c3+c5+c6)/6, 2)
     print("UNIDADES:", unidades)
-
-    # --- Email incompleto: se recupera de BD por nº de pedido ---
-    email = envio_fields["Envio_Email"]
-    num_proforma = to_int_or_none(proforma)
-    if envio_fields["Envio_Email_Incompleto"] and pedido:
-        email_bd = find_client_email(int(pedido))
-        print(f"EMAIL INCOMPLETO: '{email}' (pedido={pedido}) -> BD: {email_bd}")
-        if email_bd:
-            email = email_bd
 
     return ExtractResponse(
         Numero_de_pedido=int(pedido),
         Nombre_de_cliente=nombre_cliente,
         Codigo_de_cliente=codigo_cliente,
-        Numero_proforma=num_proforma,
+        Numero_proforma=to_int_or_none(proforma),
         Fecha_de_la_factura=fecha,
         Referencia_de_pedido=ref,
         Importe=float(importe),
         Moneda=moneda_iso,
         Unidades=int(unidades_clean),
-        confidence=confidence,
         source="rule",
         pais=envio_fields["Envio_Pais"],
         telefono=envio_fields["Envio_Telefono"],
-        email=email,
+        email=envio_fields["Envio_Email"],
+        es_email_pdf_valido=is_valid_email(envio_fields["Envio_Email"]),
         agente=agente,
     )

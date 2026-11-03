@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 class Block(BaseModel):
     text: str
@@ -20,11 +20,11 @@ class ExtractResponse(BaseModel):
     Moneda: str | None = None
     Unidades: int | None = 0
 
-    confidence: float
     source: str
     pais: str | None = None
     telefono: str | None = None
     email: str | None = None
+    es_email_pdf_valido: bool = False
     agente: str | None = None
 
 class mailInput(BaseModel):
@@ -37,3 +37,14 @@ class mailInput(BaseModel):
 class mailOutput(BaseModel):
     email_body: str
     email_subject: str
+
+class correctEmailInput(BaseModel):
+    num_pedido: int
+    email_pdf: Optional[str] = ""
+
+class correctEmailOutput(BaseModel):
+    email_aplicado: str
+    email_bd: Optional[str] = None
+    es_corregido: bool
+    motivo: Optional[Literal["match", "replaced", "bd_sin_email", "bd_no_disponible"]] = None
+    es_email_pdf_valido: bool
