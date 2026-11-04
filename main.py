@@ -55,6 +55,15 @@ async def extract(pdf: UploadFile = File(...)):
 
         # Procesar campos
         data = extract_fields_from_blocks(blocks)
+
+        # Email cortado: se corrige con la BD de clientes por nº de pedido
+        if data.email and not data.es_email_pdf_valido:
+            correccion = correctCustomerEmail(data.Numero_de_pedido, data.email)
+            data.email_cliente = correccion.email_cliente
+            data.es_email_corregido = correccion.es_email_corregido
+            data.email_pdf_cliente = correccion.email_pdf_cliente
+            data.motivo_email = correccion.motivo
+
         return JSONResponse(content=data.model_dump())
 
     finally:
@@ -98,7 +107,7 @@ async def generate_mail(input: mailInput):
 
 @app.post("/correct-customer-email", response_model=correctEmailOutput)
 def correct_customer_email(input: correctEmailInput):
-    """Corrige el email del PDF con el de la BD de clientes. n8n lo llama solo si es_email_pdf_valido es false."""
+    """Corrige el email del PDF con el de la BD de clientes. /extract ya lo aplica; se mantiene para uso aparte."""
     return correctCustomerEmail(input.num_pedido, input.email_pdf)
 
 @app.post("/processExcel")

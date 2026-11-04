@@ -50,8 +50,9 @@ RX_ID_TOKEN = re.compile(r'\b([A-Z]*\d{3,}|[A-Z0-9][A-Z0-9\-\/\.]{1,})\b')
 _ID                 = r'([A-Z]?\d[\w\-\/\.]{2,}|[A-Z0-9][A-Z0-9\-\/\.]{3,})'
 RX_EMAIL            = re.compile(r'([A-Z0-9._%+\-]+@[A-Z0-9.\-]+\.[A-Z]{2,})', re.I)
 RX_EMAIL_STRICT     = re.compile(r'[A-Z0-9._%+\-]+@[A-Z0-9\-]+(?:\.[A-Z0-9\-]+)*\.[A-Z]{2,}', re.I)
-RX_EMAIL_LABEL      = re.compile(r'^\s*(?:E-?MAIL|CORREO)\s*:?\s*(.*)$', re.I)
-RX_AT_TOKEN         = re.compile(r'\S*@\S*')
+RX_EMAIL_LABEL      = re.compile(r'^\s*(?:E-?MAIL|CORREO)\s*:?\s*(.*)$', re.I | re.M)
+# Sin ':' para no arrastrar la etiqueta cuando va pegada (Email:ALGO@)
+RX_AT_TOKEN         = re.compile(r'[^\s:]*@\S*')
 # Dominios de proveedores conocidos cortados por la plantilla (gmail.co, hotmail.c, ...)
 RX_EMAIL_TRUNCATED  = re.compile(
     r'@(?:gmail|googlemail|hotmail|outlook|yahoo|live|icloud|msn|aol)\.(?:c|co)?$', re.I)
@@ -342,7 +343,7 @@ def find_raw_email_text(lines: List[str]) -> str:
         if m:
             return m.group(0).lower()
     for ln in lines:
-        ml = RX_EMAIL_LABEL.match(ln)
+        ml = RX_EMAIL_LABEL.search(ln)
         if ml and ml.group(1).strip():
             return ml.group(1).strip().lower()
     return ""
@@ -886,7 +887,7 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     unidades_clean = unidades.replace(".", "") if unidades else "0"
     print("UNIDADES:", unidades)
 
-    # --- Email: si no es válido, email_cliente queda vacío hasta /correct-customer-email ---
+    # --- Email: si no es válido, email_cliente queda vacío hasta la corrección con BD (main.py) ---
     email = envio_fields["Envio_Email"]
     email_valido = is_valid_email(email)
 
