@@ -445,6 +445,8 @@ def same_line_right_value(anchor_rx, blocks: List[Block], max_dx: int | None = N
     return None
 
 def to_int_or_none(value) -> int | None:
+    if value is None:
+        return None
     s = str(value).strip()
     if s == "":
         return None
@@ -452,6 +454,24 @@ def to_int_or_none(value) -> int | None:
         return int(s)
     except ValueError:
         return None
+
+def to_float_or_none(value) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(str(value).strip())
+    except ValueError:
+        return None
+
+# "Proforma" en cualquier idioma de las plantillas: PROFORMA, PRO-FORMA, PRO FORMA, PROFORMA INVOICE,
+# FACTURA/FATTURA/FACTURE/FAKTURA PROFORMA, Proforma-Rechnung, Proformarechnung, PRÓ-FORMA (pt).
+# Se busca sin acentos y sin \b final para aceptar compuestos alemanes.
+RX_PROFORMA_DOC = re.compile(r'\bpro[\s\-]?forma', re.I)
+
+def is_proforma(blocks: List[Block]) -> bool:
+    """True si el documento lleva la etiqueta de proforma. Sin ella se trata como no-proforma
+    (factura, justificante, confirmación de pedido...)."""
+    return any(RX_PROFORMA_DOC.search(_deaccent(b.text)) for b in blocks)
 
 def find_shipping_header_block(blocks):
     cands = [b for b in blocks if HEADER_RX.search(_norm(b.text))]
@@ -892,15 +912,15 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
     email_valido = is_valid_email(email)
 
     return ExtractResponse(
-        Numero_de_pedido=int(pedido),
-        Nombre_de_cliente=nombre_cliente,
-        Codigo_de_cliente=codigo_cliente,
+        Numero_de_pedido=to_int_or_none(pedido),
+        Nombre_de_cliente=nombre_cliente or None,
+        Codigo_de_cliente=codigo_cliente or None,
         Numero_proforma=to_int_or_none(proforma),
         Fecha_de_la_factura=fecha,
         Referencia_de_pedido=ref,
-        Importe=float(importe),
+        Importe=to_float_or_none(importe),
         Moneda=moneda_iso,
-        Unidades=int(unidades_clean),
+        Unidades=to_int_or_none(unidades_clean) or 0,
         source="rule",
         pais=envio_fields["Envio_Pais"],
         telefono=envio_fields["Envio_Telefono"],
@@ -908,6 +928,6 @@ def extract_fields_from_blocks(blocks: List[Block]) -> ExtractResponse:
         es_email_pdf_valido=email_valido,
         email_cliente=email if email_valido else "",
         es_email_corregido=0,
-        email_pdf_cliente="",
+        email_pdf_cliente=None,
         agente=agente,
     )

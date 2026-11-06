@@ -1,5 +1,4 @@
 from datetime import date
-from gettext import find
 import os, tempfile, traceback
 from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import Response
@@ -9,9 +8,10 @@ from langdetect import detect, DetectorFactory
 from services.excelReading.insertData import insertData
 from services.excelReading.excelDuplicates import find_duplicates
 from services.pdfReading.pdfReader import has_text_layer, extract_text_blocks
-from services.pdfReading.pdfDataExtraction import extract_fields_from_blocks
+from services.pdfReading.pdfDataExtraction import extract_fields_from_blocks, is_proforma
 from services.mail.generateBody import generateBody
 from services.mail.correctCustomerEmail import correctCustomerEmail
+from services.ingesta.decision import decidir_ingesta, incidencia
 
 from models.data import ExtractResponse, mailInput, mailOutput, correctEmailInput, correctEmailOutput
 
@@ -27,13 +27,21 @@ def health():
 
 @app.post("/extract")
 async def extract(pdf: UploadFile = File(...)):
-    """Recibe un PDF y extrae los campos sin usar OCR (solo texto embebido)."""
+    """
+    Recibe un PDF, extrae los campos (solo texto embebido, sin OCR) y decide la ingesta.
+
+    Siempre HTTP 200 con resultado_extraccion:
+      - cobro: registrar con p_ingesta_registrar_cobro.
+      - incidencia: registrar con p_ingesta_registrar_incidencia usando motivo_ingesta_incidencia,
+        detalle_ingesta_incidencia y la respuesta completa como datos_extraidos.
+    Un 5xx es un fallo técnico: n8n reintenta (plan director §7.4.1).
+    """
     if not pdf.filename.lower().endswith(".pdf"):
         raise HTTPException(status_code=400, detail="Solo se aceptan archivos PDF")
 
     content = await pdf.read()
     if not content:
-        raise HTTPException(status_code=400, detail="El archivo está vacío")
+        return incidencia(ExtractResponse(), "unreadable_pdf", "El fichero PDF está vacío.")
 
     tmp_path = None
     try:
@@ -45,26 +53,33 @@ async def extract(pdf: UploadFile = File(...)):
 
         # --- Solo lectura de texto, sin OCR ---
         try:
-            blocks = extract_text_blocks(tmp_path)  # tu función actual
+            blocks = extract_text_blocks(tmp_path)
         except Exception as e:
+            # PDF corrupto o protegido: reintentar no lo arregla
             traceback.print_exc()
-            raise HTTPException(status_code=500, detail=f"Error leyendo PDF: {e}")
+            return incidencia(ExtractResponse(), "unreadable_pdf",
+                              f"No se ha podido abrir el PDF: {type(e).__name__}.")
 
         if not blocks:
-            raise HTTPException(status_code=422, detail="No se detectó texto en el PDF")
+            return incidencia(ExtractResponse(), "unreadable_pdf",
+                              "El PDF no tiene texto (escaneado o imagen).")
 
         # Procesar campos
         data = extract_fields_from_blocks(blocks)
+        es_proforma = is_proforma(blocks)
 
-        # Email cortado: se corrige con la BD de clientes por nº de pedido
-        if data.email and not data.es_email_pdf_valido:
+        # Email del PDF vacío o no válido (p. ej. cortado): se busca en la BD de clientes por nº de pedido
+        if es_proforma and not data.es_email_pdf_valido:
             correccion = correctCustomerEmail(data.Numero_de_pedido, data.email)
             data.email_cliente = correccion.email_cliente
             data.es_email_corregido = correccion.es_email_corregido
             data.email_pdf_cliente = correccion.email_pdf_cliente
             data.motivo_email = correccion.motivo
 
-        return JSONResponse(content=data.model_dump())
+        data = decidir_ingesta(data, es_proforma)
+        print(f"DECISIÓN: {data.resultado_extraccion} {data.motivo_ingesta_incidencia or ''} "
+              f"{data.detalle_ingesta_incidencia or ''}".rstrip())
+        return data
 
     finally:
         if tmp_path and os.path.exists(tmp_path):
